@@ -1,8 +1,8 @@
 # Bootstrap — one-time manual setup
 
 Everything else is Terraform applied by CI. This file records the steps that can't be, so the
-setup is reproducible and auditable. Check items off as they're done; add the date and any IDs
-that aren't secret.
+setup is reproducible and auditable. Check items off as they're done and add the date. This repo
+is public: real account and project IDs go in your gitignored `.env`, never in this file.
 
 ## Why this exists
 
