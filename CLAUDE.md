@@ -106,8 +106,9 @@ evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,d
 ## Development workflow
 
 - Python + FastAPI. Lint `ruff`, types `mypy`, tests `pytest`, import rules `import-linter`.
-  All must pass before a change is done: `uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest`
-  (`import-linter` joins in CI, M0 Day 3). Run the app with `docker compose up --build`.
+  All must pass before a change is done (CI runs the same on every PR):
+  `uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run lint-imports && uv run pytest`.
+  Run the app with `docker compose up --build`.
 - Infra is Terraform only, applied by CI. Never suggest console click-ops for anything that should be
   in Terraform. Manual one-time steps go in `infra/BOOTSTRAP.md`. Not in Terraform: app rollouts,
   DB schema (`migrations/`), test users (seed script), the Gemini key value.

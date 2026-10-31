@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Tests and CI never call Gemini or need a key.
+      LLM_PROVIDER: mock
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Types
+        run: uv run mypy
+      - name: Import rules
+        run: uv run lint-imports
+      - name: Tests
+        run: uv run pytest
+
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build image
+        run: docker build --tag spanish-support-chatbot:ci .
+      - name: Smoke test with the mock LLM
+        run: |
+          docker run -d --name api -p 8000:8000 -e LLM_PROVIDER=mock spanish-support-chatbot:ci
+          for i in $(seq 1 30); do curl -sf localhost:8000/healthz && break; sleep 1; done
+          curl -sfN localhost:8000/v1/chat -H 'Content-Type: application/json' \
+            -d '{"message": "¿Cómo bloqueo mi tarjeta?"}' | tee reply.txt
+          grep -q 'event: done' reply.txt
+      - name: Container logs
+        if: failure()
+        run: docker logs api

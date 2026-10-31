@@ -17,6 +17,7 @@ dev = [
     "httpx2>=2.16",
     "ruff>=0.17",
     "mypy>=2.4",
+    "import-linter>=2.15",
 ]
 
 [tool.uv]
@@ -37,6 +38,31 @@ packages = ["core", "adapters", "apps"]
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_defs = false
+
+[tool.importlinter]
+root_packages = ["core", "adapters", "apps"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "core is cloud-free: no SDKs, web framework, adapters or apps"
+type = "forbidden"
+source_modules = ["core"]
+forbidden_modules = [
+    "adapters",
+    "apps",
+    "google",
+    "boto3",
+    "botocore",
+    "azure",
+    "fastapi",
+    "starlette",
+    "uvicorn",
+]
+
+[[tool.importlinter.contracts]]
+name = "layers: apps -> adapters -> core"
+type = "layers"
+layers = ["apps", "adapters", "core"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
