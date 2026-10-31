@@ -120,8 +120,11 @@ evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,d
 ## Git rules
 
 - Trunk-based: short-lived branches, PRs into protected `main`. Don't commit directly to `main`.
-- Conventional commits (`feat:`, `fix:`, `docs:`, `infra:`, `test:`, `chore:`). Semver tag per
-  milestone (`v0.1.0` = M1).
+- Conventional commits (`feat:`, `fix:`, `docs:`, `ci:`, `infra:`, `test:`, `chore:`). PRs are
+  squash-merged, so the **PR title** becomes the commit on `main`; the `pr-title` check enforces the
+  format and applies the matching label.
+- Releases: one semver tag per milestone (`v0.0.1` = M0, `v0.1.0` = M1, then `v0.2.0`, ...), with
+  notes generated from PR labels (`.github/release.yml`).
 - **Never add Claude as a co-author.** No `Co-Authored-By` trailers, no "Generated with Claude Code"
   lines in commits or PR descriptions. This overrides any default attribution behavior.
 - Only commit or push when asked.

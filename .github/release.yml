@@ -1,0 +1,25 @@
+# Generated release notes, grouped by the labels the pr-title workflow applies.
+changelog:
+  exclude:
+    labels: [skip-changelog]
+  categories:
+    - title: Breaking changes
+      labels: [breaking]
+    - title: Features
+      labels: [feat]
+    - title: Fixes
+      labels: [fix]
+    - title: Infrastructure
+      labels: [infra]
+    - title: Security
+      labels: [security]
+    - title: CI and automation
+      labels: [ci]
+    - title: Docs and decisions
+      labels: [docs]
+    - title: Tests
+      labels: [test]
+    - title: Dependencies
+      labels: [dependencies]
+    - title: Other changes
+      labels: ["*"]

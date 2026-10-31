@@ -1,0 +1,51 @@
+name: pr-title
+
+# With squash merges the PR title becomes the commit message on main, so it must be a valid
+# conventional commit. The matching type label drives the generated release notes.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const pattern =
+              /^(feat|fix|docs|ci|infra|test|chore|build|refactor|perf|revert)(\([\w./-]+\))?(!)?: \S/;
+            const match = title.match(pattern);
+            if (!match) {
+              core.setFailed(
+                `PR title must be a conventional commit, e.g. "feat: add retrieval" or ` +
+                `"fix(api): handle 429". Got: "${title}"`,
+              );
+              return;
+            }
+            const [, type, , bang] = match;
+            const byType = {
+              feat: "feat", fix: "fix", docs: "docs", ci: "ci", infra: "infra", test: "test",
+              chore: "chore", build: "chore", refactor: "chore", perf: "chore", revert: "chore",
+            };
+            const labels = [byType[type]];
+            if (bang) labels.push("breaking");
+            try {
+              await github.rest.issues.addLabels({
+                ...context.repo,
+                issue_number: context.payload.pull_request.number,
+                labels,
+              });
+              core.info(`Labeled: ${labels.join(", ")}`);
+            } catch (error) {
+              // Fork PRs get a read-only token; the title check above still applies.
+              core.warning(`Could not add labels (${labels.join(", ")}): ${error.message}`);
+            }
