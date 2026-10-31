@@ -78,7 +78,7 @@ spanish-support-chatbot/
 ├── evals/                 # per-market test sets, metrics, security tests
 ├── infra/terraform/       # bootstrap, modules, stacks
 ├── tests/                 # unit, contract (one suite every adapter passes), integration
-├── docs/                  # design.md, adr/, friction-log.md
+├── docs/                  # roadmap.md, design.md, adr/, friction-log.md
 ├── .github/workflows/     # ci, deploy-gcp, deploy-azure, deploy-aws, index, eval, drift
 ├── docker-compose.yml     # local API + Postgres with pgvector + mock LLM
 └── pyproject.toml         # extras: [gcp], [azure], [aws]
