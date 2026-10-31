@@ -1,0 +1,14 @@
+# Normalize line endings so Windows and macOS checkouts produce identical files.
+# LF everywhere: scripts run in Linux containers and CI.
+* text=auto eol=lf
+
+# PowerShell scripts keep CRLF for Windows PowerShell 5.1 compatibility.
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.ico binary
+*.onnx binary
+*.safetensors binary

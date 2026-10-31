@@ -1,7 +1,7 @@
 # CLAUDE.md — spanish-support-chatbot
 
 Guidance for Claude Code in this repo. The source of truth for scope and sequencing is
-[Spanish Support Chatbot — Roadmap & Milestones.md](Spanish%20Support%20Chatbot%20—%20Roadmap%20&%20Milestones.md).
+[docs/roadmap.md](docs/roadmap.md).
 When this file and the roadmap disagree, the roadmap wins — flag the conflict instead of guessing.
 
 ## What this is
@@ -66,7 +66,7 @@ Expected layout (create folders as milestones need them, not up front):
 
 ```text
 core/  adapters/{shared,gcp,azure,aws}/  apps/  ui/  indexing/  migrations/
-evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{design.md,adr/,friction-log.md}
+evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,design.md,adr/,friction-log.md}
 .github/workflows/  docker-compose.yml  pyproject.toml   # extras: [gcp], [azure], [aws]
 ```
 
