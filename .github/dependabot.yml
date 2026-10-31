@@ -15,3 +15,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Python upgrades are deliberate: requires-python, uv.lock and the Dockerfile move together.
+      # Patch and digest (security) updates within 3.12 still come through.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

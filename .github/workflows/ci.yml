@@ -58,4 +58,4 @@ jobs:
           grep -q 'event: done' reply.txt
       - name: Container logs
         if: failure()
-        run: docker logs api
+        run: docker logs api || echo "container never started; see the build step above"
