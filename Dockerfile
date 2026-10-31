@@ -1,7 +1,7 @@
 # Local and (from M1) Cloud Run image. Multi-stage: uv resolves into a venv, the runtime stage
 # copies only the venv and source, and runs as a non-root user.
 
-FROM ghcr.io/astral-sh/uv:0.12.20 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 FROM python:3.12-slim AS build
 COPY --from=uv /uv /usr/local/bin/uv
