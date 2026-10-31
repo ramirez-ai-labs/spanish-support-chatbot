@@ -131,7 +131,7 @@ Done when: accounts are safe, the repo has its guardrails, and a local chatbot a
 **Demo:** start the stack with Docker Compose, ask "¿Cómo bloqueo mi tarjeta?" and get a streamed Spanish answer on your laptop.
 
 - [ ] Day 1: MFA on every account; $1 budget alerts on GCP, Azure and AWS; tag everything `project=showcase`
-- [ ] Day 1: GCP projects `chatbot-demo-513221` (billing on) and `chatbot-gemini-513221` (no billing); Gemini API key; start `infra/BOOTSTRAP.md` for manual steps
+- [ ] Day 1: GCP projects `chatbot-demo` (billing on) and `chatbot-gemini` (no billing); Gemini API key; start `infra/BOOTSTRAP.md` for manual steps
 - [ ] Day 1: monorepo `spanish-support-chatbot` in `ramirez-ai-labs` with Apache 2.0 license, `.gitignore`, `.env.example` and the folder skeleton, merged through your first PR
 - [ ] Day 2: local chatbot: minimal FastAPI `/v1/chat` streaming from Gemini behind the `LLMProvider` port, run with `docker compose`
 - [ ] Day 2: one-page test UI (or curl) that shows the streamed answer

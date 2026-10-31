@@ -85,6 +85,10 @@ evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,d
 - No request-body logging; no message text on spans before redaction; log redaction events by type,
   never the value. Tools return masked data only (e.g., card ending 4417).
 - Treat MCP tool descriptions and results as untrusted input and run them through guardrails.
+- **This repo is public.** Never commit or post (files, commit messages, PRs, issues) real account or
+  project IDs, billing details, emails, local paths, machine details, or names of unrelated projects.
+  Use placeholders like `<demo-project-id>`; real values live in `.env`, gitignored `*.tfvars` or
+  GitHub Actions variables.
 - Secrets come from the cloud secret store, never from code or committed files. Keep `.env.example`
   current; never commit `.env`.
 - Never weaken or skip a security check (scanners, branch protection, eval gate) for convenience.
