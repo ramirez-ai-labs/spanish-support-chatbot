@@ -16,21 +16,25 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 
 ## Current status
 
-Pre-M0. The repo holds only the roadmap, README, LICENSE (Apache-2.0) and `.gitignore`.
-Before starting work, check which milestone is active (GitHub milestones / open issues) and
-stay inside its scope. Don't build ahead into later milestones unless asked.
+M0 in progress. The repo has docs, `.env.example`, `.gitattributes` and `.terraform-version`;
+no app code or Terraform yet. Before starting work, check which milestone is active (GitHub
+milestones / open issues) and stay inside its scope. Don't build ahead into later milestones unless asked.
+
+**Working rule: something runs every day.** The whole system is designed up front, but it's built
+as the thinnest slice that works, adding infrastructure only when the next slice needs it. Every
+change must leave the bot working; prefer one small merged PR per session over large batches.
 
 | Milestone | Dates | Outcome |
 | --- | --- | --- |
-| M0 Setup | Nov 2–8 | Accounts, budgets, repo guardrails, bootstrap + `shared` Terraform |
-| M1 Walking skeleton (GCP) | Nov 9–15 | Streamed Gemini answer, JWT check, trace + usage event, CI deploy, `v0.1.0` |
+| M0 Setup + local bot | Nov 2–8 | Accounts safe, repo guardrails + CI, local `docker compose` bot streaming Spanish from Gemini |
+| M1 Walking skeleton (GCP) | Nov 9–15 | GCP bootstrap + `shared` Terraform, Cloud Run deploy, JWT check, trace + usage event, `v0.1.0` |
 | M2 RAG + indexing | Nov 16–29 | Market-filtered retrieval with citations (US, MX, + one more) |
 | M3 Guardrails, agent, access | Nov 30–Dec 13 | PII redaction, tiered tools, step-up, handoff, audit log |
 | M4 Eval gate | Dec 14–20 | Regression fails CI; model bakeoff ADR |
 | M5 Hardening + dashboards | Dec 21–Jan 3 | Limits, alerts, cost/latency dashboard, k6 result |
 | M6 Showcase | Jan 4–10 | **Gate:** demo-ready GCP build, design doc, video |
-| M7 Azure | Jan 11–24 | Same app on Container Apps |
-| M8 AWS | Jan 25–Feb 7 | Same app on Lambda; cross-cloud dashboard |
+| M7 Azure | Jan 11–24 | Azure added to bootstrap; same app on Container Apps |
+| M8 AWS | Jan 25–Feb 7 | AWS added to bootstrap; same app on Lambda; cross-cloud dashboard |
 | M9 MCP | Feb 8–21 | Knowledge, ops and bank-tools MCP servers for staff |
 
 Never cut M4 or M6 to recover schedule; slip M7/M8 instead.
@@ -44,7 +48,7 @@ Never cut M4 or M6 to recover schedule; slip M7/M8 instead.
   including in tests, fixtures and eval sets.
 - **LLM:** Gemini Flash free tier on every cloud; e5-small embeddings in the container.
   Do not call the Anthropic API from this project or its tooling unless explicitly asked.
-  Local dev and tests use the mock LLM from `docker-compose.yml`.
+  Tests and CI use the mock LLM from `docker-compose.yml`; local dev may use the free-tier Gemini key from `.env`.
 - **Portability:** only adapters change between clouds.
 
 ## Architecture rules
@@ -57,7 +61,7 @@ Never cut M4 or M6 to recover schedule; slip M7/M8 instead.
   New adapter → make it pass the contract suite before wiring it in.
 - `apps/` are thin entry points only — no business logic.
 - Knowledge lives in one shared Neon pgvector DB (AWS US East 1), with a least-privilege role per
-  consumer (`indexer`, `app_gcp`, `app_azure`, `app_aws`, `usage_writer`).
+  consumer (`indexer`, `app_gcp`, `usage_writer` in M1; `app_azure` in M7; `app_aws` in M8).
 - Every query filters by market. The market list is config — adding a country is data, not code.
 - e5 prefixes: `passage:` when indexing, `query:` at query time.
 - Tools sit behind `ToolProvider`: in-process for the customer hot path, MCP (streamable HTTP) for staff.
