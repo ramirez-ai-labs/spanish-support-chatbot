@@ -8,7 +8,23 @@ The goal is to show full system design, not just a chatbot: identity tiers, PII 
 eval gate in CI, tracing, cost tracking, and the same app running natively on GCP, Azure and AWS,
 all on free tiers with synthetic data only.
 
-**Status:** M0, setup and a local bot. No app code yet.
+**Status:** M0, setup and a local bot.
+
+## Run it locally
+
+Needs Docker, or [uv](https://docs.astral.sh/uv/) for the non-Docker path.
+
+```bash
+cp .env.example .env            # add GEMINI_API_KEY, or set LLM_PROVIDER=mock to skip it
+docker compose up --build
+curl -N http://localhost:8000/v1/chat -H 'Content-Type: application/json' \
+  -d '{"message": "¿Cómo bloqueo mi tarjeta?"}'
+```
+
+The reply streams back as server-sent events. Without Docker:
+`uv sync && uv run uvicorn --factory apps.api.main:create_app` (load `.env` first).
+
+Checks: `uv run ruff check . && uv run mypy && uv run pytest`.
 
 - [Roadmap and milestones](docs/roadmap.md)
 - [Infrastructure bootstrap](infra/BOOTSTRAP.md)
