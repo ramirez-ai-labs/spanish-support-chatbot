@@ -24,7 +24,7 @@ curl -N http://localhost:8000/v1/chat -H 'Content-Type: application/json' \
 The reply streams back as server-sent events. Without Docker:
 `uv sync && uv run uvicorn --factory apps.api.main:create_app` (load `.env` first).
 
-Checks: `uv run ruff check . && uv run mypy && uv run pytest`.
+Checks (the same ones CI runs): `uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run lint-imports && uv run pytest`.
 
 - [Roadmap and milestones](docs/roadmap.md)
 - [Infrastructure bootstrap](infra/BOOTSTRAP.md)
