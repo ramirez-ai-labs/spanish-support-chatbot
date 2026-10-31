@@ -1,0 +1,18 @@
+# Local stack. M0: the API only; Postgres with pgvector is added when retrieval lands (M2).
+#   docker compose up --build                       -> real Gemini (needs GEMINI_API_KEY in .env)
+#   LLM_PROVIDER=mock docker compose up --build     -> mock LLM, no key, no network
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
