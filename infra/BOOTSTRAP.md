@@ -80,13 +80,23 @@ git config --global core.longpaths true
 
 ## 2. Accounts and safety rails
 
-- [ ] GCP project `chatbot-demo` (billing on, for Cloud Run and friends)
-- [ ] GCP project `chatbot-gemini` (no billing — keeps the Gemini key on the free tier)
-- [ ] Gemini API key created in AI Studio under `chatbot-gemini`
-- [ ] $1 budget alerts on GCP, Azure and AWS
+GCP project IDs are globally unique, so GCP appended a suffix to the names. Use the IDs, not the
+display names, in commands and Terraform.
+
+| Display name | Project ID | Billing |
+| --- | --- | --- |
+| `chatbot-demo` | `chatbot-demo-513221` | Linked (Cloud Run and friends) |
+| `chatbot-gemini` | `chatbot-gemini-513221` | **Not linked**: keeps the Gemini key on the free tier |
+
+- [x] GCP project `chatbot-demo-513221` created
+- [x] GCP project `chatbot-gemini-513221` created
+- [ ] Billing linked to `chatbot-demo-513221` only (Billing → Account management → linked projects)
+- [ ] Gemini API key created in AI Studio under `chatbot-gemini-513221`; stored in `.env` only
+- [ ] $1 budget alerts on GCP, Azure and AWS. On GCP, one alert for the whole billing account
+      (it may also pay for other projects) plus one scoped to `chatbot-demo-513221`
 - [ ] MFA on every account (GCP, Azure, AWS, GitHub, Neon, Cloudflare)
 - [ ] Tag/label convention `project=showcase` documented and applied
-- [ ] AWS: IAM user for daily work; root used only for account-level tasks
+- [ ] AWS: IAM user for daily work with MFA, used through the `showcase` CLI profile; root used only for account-level tasks
 - [ ] AWS: $100 credit activities completed; any EC2 instance or database created for them deleted immediately
 
 ## 3. Authenticate the CLIs
@@ -95,15 +105,26 @@ Use the least privilege that still lets the bootstrap stack run. The cloud CLIs 
 credentials (gcloud ADC, AWS profiles, `az login`, `gh auth`), so none of them go in `.env`,
 `.tfvars` or any committed file.
 
-```bash
-# GCP: the second command gives Terraform Application Default Credentials
-gcloud auth login
-gcloud auth application-default login
-gcloud config set project chatbot-demo
+**GCP: use a dedicated gcloud configuration.** If you have other GCP projects, your default
+configuration and ADC quota project probably point at one of them, so commands and Terraform runs
+for this repo would silently hit the wrong project. A named configuration keeps them apart:
 
-# AWS: prefer SSO; otherwise a named profile for the daily IAM user
-aws configure sso --profile showcase   # or: aws configure --profile showcase
-aws sso login --profile showcase       # SSO only; repeat when the session expires
+```bash
+gcloud config configurations create ssc
+gcloud config set account <your-google-account>
+gcloud config set project chatbot-demo-513221
+gcloud auth login
+gcloud auth application-default login   # gives Terraform Application Default Credentials
+gcloud auth application-default set-quota-project chatbot-demo-513221
+```
+
+Switch with `gcloud config configurations activate ssc` (or `default` for other work). ADC is
+shared across configurations, so rerun the `set-quota-project` line after working on another
+project.
+
+```bash
+# AWS: named profile for the daily IAM user (see section 2). Not needed until M8.
+aws configure --profile showcase
 
 # Azure
 az login
