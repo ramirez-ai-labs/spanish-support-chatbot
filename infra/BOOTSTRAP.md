@@ -34,14 +34,30 @@ labeled per shell.
 | git | Yes | Source control | `winget install Git.Git` | `brew install git` |
 | terraform | Yes | Bootstrap apply; local `plan` / `fmt` / `validate` | `winget install Hashicorp.Terraform --version <pin>` | `brew install hashicorp/tap/terraform` |
 | gcloud | Yes | Bootstrap: GCS state bucket, Workload Identity Federation | `winget install Google.CloudSDK` | `brew install --cask gcloud-cli` |
-| az | Yes | Bootstrap: Entra app + federated credentials | `winget install Microsoft.AzureCLI` | `brew install azure-cli` |
-| aws | Yes | Bootstrap: IAM OIDC provider + deploy role | `winget install Amazon.AWSCLI` | `brew install awscli` |
+| az | Yes | Bootstrap: Entra app + federated credentials | `winget install Microsoft.AzureCLI` | `brew install azure-cli`, or `uv tool install azure-cli --python 3.12` |
+| aws | Yes | Bootstrap: IAM OIDC provider + deploy role | `winget install Amazon.AWSCLI` | Official installer (below) |
 | gh | Yes | Repo settings, branch protection, Actions secrets, milestones | `winget install GitHub.cli` | `brew install gh` |
 | docker | Yes | Local `docker-compose` dev, image builds | `winget install Docker.DockerDesktop` (WSL2 backend) | `brew install --cask docker` |
 | python + uv | Yes | App, tests, tooling | `winget install Python.Python.3.12` + `winget install astral-sh.uv` | `brew install python@3.12 uv` |
 | node | Optional | Needed only for the npm tools below | `winget install OpenJS.NodeJS.LTS` | `brew install node` |
 | neonctl | Optional | Branches and connection strings while debugging (Terraform uses the API key) | `npm i -g neonctl` | `npm i -g neonctl` |
 | wrangler | Optional | Local Pages testing (Terraform uses the API token) | `npm i -g wrangler` | `npm i -g wrangler` |
+
+**macOS: AWS CLI.** Use AWS's signed installer instead of the Homebrew formula, which compiles
+cmake, OpenSSL and Python wherever Homebrew has no prebuilt bottles:
+
+```bash
+curl -o AWSCLIV2.pkg "https://awscli.amazonaws.com/AWSCLIV2.pkg"
+sudo installer -pkg AWSCLIV2.pkg -target /
+rm AWSCLIV2.pkg
+```
+
+**Older macOS (Homebrew Tier 3, e.g., macOS 12).** Homebrew builds every formula from source
+there, which can take an hour or fail. Prefer vendor installers, casks and `uv tool install`.
+Verified on macOS 12: terraform from `hashicorp/tap`, the AWS `.pkg` and az via `uv tool install`
+all install in seconds. If you use the python.org Python, run
+`"/Applications/Python 3.12/Install Certificates.command"` once, or anything that downloads over
+HTTPS with that Python (pip, installer scripts) fails with `CERTIFICATE_VERIFY_FAILED`.
 
 **Terraform version.** [`.terraform-version`](../.terraform-version) is the single pin; the bootstrap
 stack's `required_version` and the CI `setup-terraform` step must use the same value. Install exactly that version on every machine.
@@ -59,8 +75,8 @@ git config --global core.longpaths true
 (or `input`). If a Windows checkout predates `.gitattributes`, run `git add --renormalize .` once.
 
 - [ ] Terraform installed at the version in `.terraform-version` (`terraform version` matches)
-- [ ] AWS CLI upgraded to current v2 (`winget upgrade Amazon.AWSCLI` / `brew upgrade awscli`)
-- [ ] Azure CLI upgraded (`az upgrade`)
+- [ ] AWS CLI upgraded to current v2 (`winget upgrade Amazon.AWSCLI` / rerun the `.pkg` on macOS)
+- [ ] Azure CLI upgraded (`az upgrade`; `uv tool upgrade azure-cli` if installed with uv)
 
 ## 2. Accounts and safety rails
 
