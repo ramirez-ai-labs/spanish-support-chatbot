@@ -27,6 +27,7 @@ The reply streams back as server-sent events. Without Docker:
 Checks (the same ones CI runs): `uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run lint-imports && uv run pytest`.
 
 - [Roadmap and milestones](docs/roadmap.md)
+- [Architecture decisions](docs/adr/README.md)
 - [Infrastructure bootstrap](infra/BOOTSTRAP.md)
 
 Licensed under [Apache 2.0](LICENSE).
