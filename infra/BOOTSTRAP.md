@@ -7,8 +7,22 @@ that aren't secret.
 ## Why this exists
 
 Terraform needs somewhere to keep state and a way for CI to authenticate before it can manage
-anything. That chicken-and-egg step runs **locally, once**. After it, CI authenticates to GCP,
-Azure and AWS with short-lived OIDC tokens — no long-lived cloud keys in GitHub.
+anything. That chicken-and-egg step runs **locally**, once per cloud. After it, CI authenticates
+with short-lived OIDC tokens — no long-lived cloud keys in GitHub.
+
+## When each section runs
+
+Infrastructure is added only when the next slice needs it (see [docs/roadmap.md](../docs/roadmap.md)).
+
+| Milestone | Sections |
+| --- | --- |
+| M0 | 1 (tooling), 2 (accounts and safety rails), 3 (GCP + GitHub auth only) — enough for the local bot and CI |
+| M1 | 3 (rest of GCP), 4 (Neon, Cloudflare), 5 (GCP bootstrap), 6 (`shared` + `gcp` stacks) |
+| M7 | 3 (Azure), 5 (add Azure to bootstrap), 6 (`azure` stack) |
+| M8 | 3 (AWS), 5 (add AWS to bootstrap), 6 (`aws` stack) |
+
+Budget alerts and MFA on all three clouds still happen on M0 day 1, even though Azure and AWS
+aren't built until later — an idle account can still be compromised or billed.
 
 ## 1. Local tooling
 
@@ -138,14 +152,17 @@ gh variable set CLOUDFLARE_ACCOUNT_ID --body <account-id>
 - [ ] Neon API key created and stored
 - [ ] Cloudflare token created and stored
 
-## 5. Run the bootstrap stack (locally, once)
+## 5. Run the bootstrap stack (locally, once per cloud)
 
-`infra/terraform/bootstrap/` creates:
+`infra/terraform/bootstrap/` grows one cloud at a time:
 
-- A private, versioned GCS bucket for Terraform state
-- GCP Workload Identity Federation pool + provider trusting this repo's GitHub Actions
-- Azure Entra app registration + federated credentials for this repo
-- AWS IAM OIDC provider for GitHub + a deploy role trusted only by this repo
+- **M1:** a private, versioned GCS bucket for Terraform state, plus a GCP Workload Identity
+  Federation pool + provider trusting this repo's GitHub Actions
+- **M7:** Azure Entra app registration + federated credentials for this repo
+- **M8:** AWS IAM OIDC provider for GitHub + a deploy role trusted only by this repo
+
+Each addition is a local `plan` + `apply` of the same stack; the existing GCP resources should
+show no changes.
 
 Restrict every trust policy to `repo:ramirez-ai-labs/spanish-support-chatbot` (and to `main` /
 the `prod` environment where applicable), so no other repo or fork can assume the roles.
@@ -169,15 +186,19 @@ no changes.
 Record the non-secret outputs (WIF provider name, Azure client/tenant IDs, AWS role ARN) as
 GitHub Actions variables so the CI workflows can use them.
 
-- [ ] Bootstrap applied
-- [ ] `.terraform.lock.hcl` committed with Windows, macOS and Linux hashes
-- [ ] Clean `plan` from the second OS
-- [ ] Outputs stored as Actions variables
-- [ ] Bootstrap state migrated to the GCS bucket
+- [ ] M1: GCP bootstrap applied
+- [ ] M1: `.terraform.lock.hcl` committed with Windows, macOS and Linux hashes
+- [ ] M1: clean `plan` from the second OS
+- [ ] M1: outputs stored as Actions variables
+- [ ] M1: bootstrap state migrated to the GCS bucket
+- [ ] M7: Azure added to bootstrap; outputs stored as Actions variables
+- [ ] M8: AWS added to bootstrap; outputs stored as Actions variables
 
 ## 6. Hand off to CI and lock down
 
-- [ ] `shared`, `gcp`, `azure`, `aws` stacks plan on PR and apply on merge
+- [ ] M1: `shared` and `gcp` stacks plan on PR and apply on merge
+- [ ] M7: `azure` stack plans on PR and applies on merge
+- [ ] M8: `aws` stack plans on PR and applies on merge
 - [ ] `prod` GitHub environment requires approval
 - [ ] Weekly scheduled `terraform plan` drift check enabled
 - [ ] Local admin sessions logged out or downgraded to read-only — consoles are for looking only

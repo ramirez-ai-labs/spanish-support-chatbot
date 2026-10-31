@@ -9,7 +9,7 @@ Ship one live, end-to-end Spanish support chatbot on GCP by January 10, 2027, th
 - **What it proves:** full system design and delivery: online and offline paths, identity, guardrails, evals, observability, cost, and scale tradeoffs.
 - **Constraint:** $0 to run. Free tiers only, synthetic customer data only, Gemini free tier as the LLM on every cloud.
 - **Portability:** one shared knowledge layer on Neon; the cloud-specific runtime sits behind adapters.
-- **Pace:** evenings and weekends, 8 to 10 hours a week.
+- **Pace:** evenings and weekends, 8 to 10 hours a week; something runs at the end of every session.
 - **Scenario:** a bank serving Spanish speakers, in the US or any Spanish-speaking country, wants a Spanish support assistant that answers from policy docs, takes simple actions, and hands off to a human when unsure.
 
 ## Requirements
@@ -107,7 +107,7 @@ Existing lab repos stay separate; their eval code is installed from pinned git t
 Everything is Terraform, applied by CI; the web consoles are for looking only.
 
 1. **Manual, once:** accounts, billing, the Gemini key in AI Studio, AWS credit activities. Documented in `infra/BOOTSTRAP.md`.
-2. **Bootstrap Terraform, run locally once:** a private, versioned GCS state bucket and keyless GitHub OIDC trust in GCP, Azure and AWS.
+2. **Bootstrap Terraform, run locally once:** a private, versioned GCS state bucket and keyless GitHub OIDC trust, GCP first in M1; Azure and AWS are added in M7 and M8.
 3. **Main Terraform, run by CI:** separate stacks with their own state: `shared` (GitHub, Cloudflare, Neon), `gcp`, `azure`, `aws`, each with `dev` and `prod` variables.
 
 - PRs post `terraform plan` as a comment; merging runs `apply`, with approval required for `prod`.
@@ -122,23 +122,23 @@ M0 to M6 build the GCP showcase; the January 10 gate is the point where it's dem
 
 ## Milestone tasks
 
-Each milestone ends with something that runs or a doc you can show. Identity, telemetry and cost tracking start in M1, not at the end.
+Working rule: something runs every day. Design the whole system up front, build the thinnest slice that works, then add infrastructure only when the next slice needs it. Each session ends with the bot still working and one small change merged. Identity, telemetry and cost tracking start in M1, not at the end.
 
 ### M0 · Setup (Nov 2–8)
 
-Done when: all accounts are safe, the repo and its guardrails exist, Terraform can create the shared stack from CI, and nothing can surprise-bill you.
+Done when: accounts are safe, the repo has its guardrails, and a local chatbot answers in Spanish through Gemini. Kept small on purpose: a few evenings.
 
-**Demo:** a setup tour of three clouds, the shared database and budget alerts, all at $0.
+**Demo:** start the stack with Docker Compose, ask "¿Cómo bloqueo mi tarjeta?" and get a streamed Spanish answer on your laptop.
 
-- [ ] Manual, once: GCP projects `chatbot-demo` (billing on) and `chatbot-gemini` (no billing); Gemini API key; record all manual steps in `infra/BOOTSTRAP.md`
-- [ ] $1 budget alerts on GCP, Azure and AWS; MFA everywhere; tag everything `project=showcase`
-- [ ] AWS: IAM user for daily work, stop using root; earn the $100 credit activities, deleting the EC2 and database right after
-- [ ] Monorepo `spanish-support-chatbot` in `ramirez-ai-labs` with the agreed folder layout, `.env.example` and `docker-compose.yml`
-- [ ] SDLC basics: branch protection on `main`, PR template, conventional commits, issue per task, GitHub milestones M0 to M8
-- [ ] First ADRs: monorepo, shared Neon, Gemini on every cloud, serverless containers instead of Kubernetes
-- [ ] Basic CI: Ruff, mypy, pytest, `import-linter` as required checks; secret scanning and Dependabot on
-- [ ] Bootstrap Terraform run locally: GCS state bucket, GitHub OIDC trust in GCP, Azure and AWS
-- [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile, Neon project in AWS US East 1 with pgvector, `dev` branch and roles (`indexer`, `app_gcp`, `app_azure`, `app_aws`, `usage_writer`)
+- [ ] Day 1: MFA on every account; $1 budget alerts on GCP, Azure and AWS; tag everything `project=showcase`
+- [ ] Day 1: GCP projects `chatbot-demo` (billing on) and `chatbot-gemini` (no billing); Gemini API key; start `infra/BOOTSTRAP.md` for manual steps
+- [ ] Day 1: monorepo `spanish-support-chatbot` in `ramirez-ai-labs` with Apache 2.0 license, `.gitignore`, `.env.example` and the folder skeleton, merged through your first PR
+- [ ] Day 2: local chatbot: minimal FastAPI `/v1/chat` streaming from Gemini behind the `LLMProvider` port, run with `docker compose`
+- [ ] Day 2: one-page test UI (or curl) that shows the streamed answer
+- [ ] Day 3: SDLC basics: branch protection on `main`, PR template, conventional commits, GitHub milestones M0 to M9
+- [ ] Day 3: basic CI: Ruff, mypy, pytest, `import-linter` as required checks; secret scanning and Dependabot on
+- [ ] Day 3: first ADRs: monorepo, shared Neon, Gemini on every cloud, serverless containers instead of Kubernetes, "something runs every day"
+- [ ] Anytime: AWS IAM user for daily work, stop using root; earn the $100 credit activities, deleting the EC2 and database right after
 
 ### M1 · Design doc and walking skeleton on GCP (Nov 9–15)
 
@@ -146,10 +146,12 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 
 **Demo:** ask in Spanish and get a streamed answer; sign in and show the token check, the trace and the token count for that call.
 
-- [ ] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
+- [ ] Bootstrap Terraform run locally, GCP only: GCS state bucket and GitHub OIDC trust for GCP
+- [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile, Neon project in AWS US East 1 with pgvector, `dev` branch and roles (`indexer`, `app_gcp`, `usage_writer`)
 - [ ] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Firestore, Secret Manager, BigQuery dataset, budget
+- [ ] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
+- [ ] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
 - [ ] Slim multi-stage Docker image with e5 and Presidio models baked in; Trivy and CodeQL scans in CI
-- [ ] FastAPI `/v1/chat` and `/healthz` on Cloud Run, calling Gemini through the `LLMProvider` adapter
 - [ ] Firebase Auth email sign-in; JWT validation behind the `IdentityProvider` adapter; no token = anonymous tier
 - [ ] `ToolProvider` port in `core/` with an in-process adapter, so tools can later move behind MCP without changing the agent
 - [ ] Contract test suite started: every adapter for a port must pass the same tests
@@ -244,13 +246,15 @@ Done when: the same UI talks to an Azure backend with the same answers, auth tie
 
 **Demo:** the same UI and answers, now served from Azure.
 
-- [ ] `azure` Terraform stack: resource group, Container Apps environment, Cosmos DB, Application Insights, federated credentials, budget
+- [ ] Add Azure to the Terraform bootstrap: GitHub federated credentials; add the `app_azure` Neon role
+- [ ] `azure` Terraform stack: resource group, Container Apps environment, Cosmos DB, Application Insights, budget
+- [ ] First session: deploy the existing image to Container Apps with GCP-free adapters stubbed, so something runs on Azure on day one
 - [ ] Container Apps in East US, image from GitHub Container Registry, deployed by CI
 - [ ] Entra External ID adapter: same JWT checks, roles from app roles
 - [ ] Cosmos DB session adapter with provisioned throughput, not serverless
 - [ ] Azure adapters pass the shared contract test suite
 - [ ] OpenTelemetry to Application Insights; usage events to Log Analytics and Neon
-- [ ] Secrets in Container Apps secrets; `app_azure` Neon role
+- [ ] Secrets in Container Apps secrets
 - [ ] Optional: Content Safety in the guardrails layer
 - [ ] ADR and design doc section: what changed on Azure and why
 
@@ -260,13 +264,15 @@ Done when: the same UI talks to an AWS backend, and one dashboard compares cost 
 
 **Demo:** the same UI on AWS, plus one dashboard comparing cost and latency across all three clouds.
 
-- [ ] `aws` Terraform stack: ECR, Lambda, DynamoDB, Cognito, IAM OIDC role, SSM parameters, budget
+- [ ] Add AWS to the Terraform bootstrap: GitHub IAM OIDC role; add the `app_aws` Neon role
+- [ ] `aws` Terraform stack: ECR, Lambda, DynamoDB, Cognito, SSM parameters, budget
+- [ ] First session: run the existing image on Lambda with stubbed AWS adapters, so something runs on AWS on day one
 - [ ] Lambda from a container image in ECR (the models exceed the zip limit), Web Adapter for streaming, us-east-1
 - [ ] Cognito adapter: same JWT checks, roles from `cognito:groups`
 - [ ] DynamoDB session adapter with provisioned capacity, not on-demand
 - [ ] AWS adapters pass the shared contract test suite
 - [ ] OpenTelemetry to CloudWatch and X-Ray; usage events to CloudWatch and Neon
-- [ ] Secrets in SSM Parameter Store; `app_aws` Neon role
+- [ ] Secrets in SSM Parameter Store
 - [ ] Cross-cloud dashboard on `llm_usage` in Neon: cost, tokens and latency by cloud
 - [ ] Decide before April 30, 2027 whether to upgrade AWS to the Paid plan
 - [ ] ADR and design doc section: what changed on AWS and why
