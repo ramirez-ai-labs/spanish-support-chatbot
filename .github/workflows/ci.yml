@@ -77,7 +77,7 @@ jobs:
         run: docker build --tag spanish-support-chatbot:ci .
       - name: Image size budget (keeps cold starts fast and the registry inside its free 0.5 GB)
         run: |
-          budget_mb=400 # uncompressed; raised deliberately when e5 (#50) and Presidio (#51) land
+          budget_mb=300 # uncompressed, 226 MB at M1; raised deliberately when e5 (#50) and Presidio (#51) land
           size_mb=$(( $(docker image inspect spanish-support-chatbot:ci --format '{{.Size}}') / 1000000 ))
           echo "Image size: ${size_mb} MB uncompressed (budget ${budget_mb} MB)" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ "$size_mb" -gt "$budget_mb" ]; then
