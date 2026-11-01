@@ -9,6 +9,13 @@ dependencies = [
     "fastapi>=0.162",
     "uvicorn[standard]>=0.54",
     "google-genai>=2.34",
+    "opentelemetry-api>=1.45.2",
+    "opentelemetry-sdk>=1.45.2",
+]
+
+[project.optional-dependencies]
+gcp = [
+    "opentelemetry-exporter-gcp-trace>=1.15.0",
 ]
 
 [dependency-groups]

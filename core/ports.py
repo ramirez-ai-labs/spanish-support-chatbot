@@ -11,4 +11,6 @@ class LLMProvider(Protocol):
     Usage recording (tokens, purpose, latency) is added here in M1.
     """
 
+    model: str  # model name, for traces and usage records
+
     def stream(self, system: str, user_message: str) -> AsyncIterator[str]: ...

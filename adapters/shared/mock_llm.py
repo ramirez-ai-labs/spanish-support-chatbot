@@ -9,6 +9,8 @@ MOCK_REPLY = (
 
 
 class MockLLM:
+    model = "mock"
+
     def __init__(self, reply: str = MOCK_REPLY) -> None:
         self._reply = reply
 
