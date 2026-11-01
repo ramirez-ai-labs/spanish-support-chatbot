@@ -21,8 +21,9 @@ Infrastructure is added only when the next slice needs it (see [docs/roadmap.md]
 | M7 | 3 (Azure), 5 (add Azure to bootstrap), 6 (`azure` stack) |
 | M8 | 3 (AWS), 5 (add AWS to bootstrap), 6 (`aws` stack) |
 
-Budget alerts and MFA on all three clouds still happen on M0 day 1, even though Azure and AWS
-aren't built until later — an idle account can still be compromised or billed.
+Budget alerts on GCP happen on M0 day 1. MFA on GitHub, Google, Neon and Cloudflare is scheduled
+for the start of M2 (#36), and Azure and AWS get MFA and budget alerts at the start of M7 and M8.
+Until then, those accounts rely on strong, unique passwords.
 
 ## 1. Local tooling
 
