@@ -5,18 +5,32 @@ from typing import Any, Protocol
 
 from core.identity import Caller, VerifiedToken
 from core.tools import ToolResult, ToolSpec
+from core.usage import LLMUsage, TokenUsage
 
 
 class LLMProvider(Protocol):
     """Streams a model reply as text chunks.
 
-    The core only sees text; provider SDKs, keys and model settings stay inside the adapter.
-    Usage recording (tokens, purpose, latency) is added here in M1.
+    The core only sees text; provider SDKs, keys and model settings stay inside the adapter. When
+    `usage` is given, the adapter fills it with the provider's token counts by the end of the
+    stream; the core measures time and outcome and records the call through a UsageSink.
     """
 
     model: str  # model name, for traces and usage records
 
-    def stream(self, system: str, user_message: str) -> AsyncIterator[str]: ...
+    def stream(
+        self, system: str, user_message: str, usage: TokenUsage | None = None
+    ) -> AsyncIterator[str]: ...
+
+
+class UsageSink(Protocol):
+    """Stores one LLMUsage per model call (llm_usage in Neon).
+
+    `record` must never raise: losing a usage row is better than failing a chat. Implementations
+    log failures by error type only.
+    """
+
+    async def record(self, usage: LLMUsage) -> None: ...
 
 
 class IdentityProvider(Protocol):

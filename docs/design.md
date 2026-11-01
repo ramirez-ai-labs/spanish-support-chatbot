@@ -103,6 +103,17 @@ Each request is one trace in Cloud Trace:
 Spans carry sizes and timings, never message text, and errors only by type. Log lines are JSON
 with the trace ID, so Cloud Logging shows them under their trace.
 
+Each model call also writes **one row to `llm_usage`** in Neon:
+- **Tokens** come from the provider's own counts: input, cached, output and thinking.
+- **The core adds** the model, purpose, prompt-part *names*, latency, time to first token, outcome
+  and trace ID.
+- **No message text.**
+- **The row is written after the answer has streamed,** as the insert-only `usage_writer` role. A
+  failed write is logged by error type and never fails the chat.
+- **Cost is a query, not a stored number.** The `llm_usage_cost` view applies the dated list price
+  in effect that day, for example $0.30 / $2.50 per 1M input / output tokens for Flash-Lite, so even
+  free-tier calls show their production "shadow cost".
+
 Two details make every request appear:
 - Cloud Run's front end marks most requests "not sampled", so that flag is not trusted.
 - Spans are flushed before the request ends, while Cloud Run still allocates CPU.

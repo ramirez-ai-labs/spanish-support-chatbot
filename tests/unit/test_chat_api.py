@@ -59,7 +59,9 @@ def test_provider_error_becomes_generic_error_event() -> None:
     class FailingLLM:
         model = "fake"
 
-        async def stream(self, system: str, user_message: str) -> AsyncIterator[str]:
+        async def stream(
+            self, system: str, user_message: str, usage: object = None
+        ) -> AsyncIterator[str]:
             raise RuntimeError(secret)
             yield ""
 
@@ -78,7 +80,9 @@ def test_provider_error_logs_type_and_code_only(caplog: pytest.LogCaptureFixture
     class FailingLLM:
         model = "fake"
 
-        async def stream(self, system: str, user_message: str) -> AsyncIterator[str]:
+        async def stream(
+            self, system: str, user_message: str, usage: object = None
+        ) -> AsyncIterator[str]:
             raise ProviderError(secret)
             yield ""
 
@@ -95,7 +99,9 @@ def test_system_prompt_is_passed_to_provider() -> None:
     class RecordingLLM:
         model = "fake"
 
-        async def stream(self, system: str, user_message: str) -> AsyncIterator[str]:
+        async def stream(
+            self, system: str, user_message: str, usage: object = None
+        ) -> AsyncIterator[str]:
             seen.append(system)
             yield "ok"
 

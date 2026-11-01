@@ -16,6 +16,7 @@ from adapters.shared.gemini import DEFAULT_MODEL, GeminiLLM
 from adapters.shared.mock_llm import MockLLM
 from core.chat import SYSTEM_PROMPT
 from core.ports import LLMProvider
+from core.usage import TokenUsage
 
 QUESTION = "¿Cómo bloqueo mi tarjeta?"
 
@@ -83,3 +84,13 @@ def test_stopping_early_closes_cleanly(llm: LLMProvider) -> None:
         return first
 
     assert isinstance(run(first_chunk_then_stop()), str)
+
+
+def test_reports_token_counts(llm: LLMProvider) -> None:
+    usage = TokenUsage()
+    run(collect(llm.stream(SYSTEM_PROMPT, QUESTION, usage=usage)))
+
+    assert usage.input_tokens > 0
+    assert usage.output_tokens > 0
+    assert 0 <= usage.cached_tokens <= usage.input_tokens
+    assert usage.thinking_tokens >= 0

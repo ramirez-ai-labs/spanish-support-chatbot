@@ -82,7 +82,9 @@ def test_provider_error_marks_both_spans_by_type_only() -> None:
     class FailingLLM:
         model = "fake"
 
-        async def stream(self, system: str, user_message: str) -> AsyncIterator[str]:
+        async def stream(
+            self, system: str, user_message: str, usage: object = None
+        ) -> AsyncIterator[str]:
             raise RuntimeError(secret)
             yield ""
 
