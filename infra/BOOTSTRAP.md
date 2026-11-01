@@ -295,6 +295,18 @@ The `prod` GitHub environment (Settings → Environments) requires the owner's a
 only protected branches. Its name is part of the apply account's trust, so renaming it breaks
 applies until the bootstrap stack is updated.
 
+**How infrastructure changes flow** ([`.github/workflows/terraform.yml`](../.github/workflows/terraform.yml)):
+
+| When | Job | Logs in as |
+| --- | --- | --- |
+| Every PR | `tf-plan`: plan the `gcp` stack (no state lock) | `tf-plan` |
+| Every PR | `tf-apply-gate`: tries to act as `tf-apply` and **must be refused** | (refused) |
+| Every PR | `tf-scan`: Trivy misconfiguration scan; HIGH or CRITICAL fails | none |
+| Merge to `main` touching `infra/terraform/gcp/` | `tf-apply-gate-main`: tries `tf-apply` without `prod`, **must be refused** | (refused) |
+| Same, then **you approve** | `tf-apply`: plan and apply | `tf-apply` |
+
+Actions logs are public on this repo, so the workflow masks every project-specific value first.
+
 **Never create secret values through Terraform.** State is readable by the plan account. Terraform
 creates secret containers; values are added by hand (Secret Manager) or by CI.
 

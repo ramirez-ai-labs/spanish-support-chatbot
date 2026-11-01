@@ -24,3 +24,7 @@ updates:
     directory: /infra/terraform/bootstrap
     schedule:
       interval: weekly
+  - package-ecosystem: terraform
+    directory: /infra/terraform/gcp
+    schedule:
+      interval: weekly
