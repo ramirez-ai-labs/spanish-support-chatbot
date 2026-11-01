@@ -75,6 +75,24 @@ jobs:
           persist-credentials: false
       - name: Build image
         run: docker build --tag spanish-support-chatbot:ci .
+      - name: Image size budget (keeps cold starts fast and the registry inside its free 0.5 GB)
+        run: |
+          budget_mb=400 # uncompressed; raised deliberately when e5 (#50) and Presidio (#51) land
+          size_mb=$(( $(docker image inspect spanish-support-chatbot:ci --format '{{.Size}}') / 1000000 ))
+          echo "Image size: ${size_mb} MB uncompressed (budget ${budget_mb} MB)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$size_mb" -gt "$budget_mb" ]; then
+            echo "::error::Image is ${size_mb} MB, over the ${budget_mb} MB budget."
+            exit 1
+          fi
+      - name: Scan the image (HIGH and CRITICAL with a fix available fail the job)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: spanish-support-chatbot:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true # base-image CVEs with no fix yet can't be acted on; fixable ones fail
+          exit-code: "1"
+          hide-progress: true
       - name: Smoke test with the mock LLM
         run: |
           docker run -d --name api -p 8000:8000 -e LLM_PROVIDER=mock spanish-support-chatbot:ci

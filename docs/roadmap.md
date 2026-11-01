@@ -150,7 +150,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 - [ ] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Firestore, Secret Manager, BigQuery dataset, budget (Cloud Run, Artifact Registry and Secret Manager done; BigQuery comes with usage events, Firestore with sessions; the budget stays manual)
 - [x] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
 - [x] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
-- [ ] Slim multi-stage Docker image with e5 and Presidio models baked in; Trivy and CodeQL scans in CI
+- [ ] Slim multi-stage Docker image with a size budget; Trivy image and CodeQL scans in CI. Models are baked in when first used: e5 in M2 (#50), Presidio in M3 (#51)
 - [ ] Firebase Auth email sign-in; JWT validation behind the `IdentityProvider` adapter; no token = anonymous tier
 - [x] `ToolProvider` port in `core/` with an in-process adapter, so tools can later move behind MCP without changing the agent
 - [ ] Contract test suite started: every adapter for a port must pass the same tests
@@ -171,7 +171,7 @@ Done when: answers cite the right market's policy chunk, starting with three mar
 - [ ] Indexing job in GitHub Actions: clean, chunk by headings, metadata, e5 `passage:` embeddings, upsert by content hash
 - [ ] Index into the Neon `dev` branch first; promote to `main` only after checks pass
 - [ ] pgvector table plus HNSW index; market filter on every query, taken from the user's profile or a UI selector
-- [ ] e5 embedder in the API container with the `query:` prefix; citations shown in the UI
+- [ ] e5 embedder in the API container with the `query:` prefix, baked into the image at build time (#50); citations shown in the UI
 
 ### M3 · Guardrails, agent and access control (Nov 30–Dec 13)
 
@@ -179,7 +179,7 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 
 **Demo:** a typed SSN is redacted; blocking a card is refused when anonymous and allowed after step-up.
 
-- [ ] Presidio with a Spanish model and ID patterns per market (US SSN, Mexico CURP, Colombia cédula, El Salvador DUI, Peru DNI), added as markets are added
+- [ ] Presidio with a Spanish model and ID patterns per market (US SSN, Mexico CURP, Colombia cédula, El Salvador DUI, Peru DNI), added as markets are added; the model is baked into the image at build time (#51)
 - [ ] PII handling: redact right after the token check; no request-body logging and no message text on spans before redaction; consistent placeholders for names (`<PERSON_1>`); scan model output too
 - [ ] Tools return masked data only (e.g., card ending 4417), never full numbers
 - [ ] Log redaction events by type, never the value
