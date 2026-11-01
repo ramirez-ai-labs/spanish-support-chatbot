@@ -271,6 +271,13 @@ gcloud services enable policytroubleshooter.googleapis.com --project "$GCP_PROJE
 bash infra/scripts/check-permissions.sh
 ```
 
+Policy Troubleshooter cannot evaluate the condition that limits which roles `tf-apply` may grant,
+so a second test makes real grants. Run **Actions → iam-grant-test → Run workflow** on `main` and
+approve `prod`. As `tf-apply`, it creates a throwaway service account, grants it one runtime role
+(must succeed), then tries owner, editor, IAM admin, token creator and project-wide secret access
+(all must be refused), and deletes the account. It cannot run locally: as the project owner every
+grant would succeed, so it would prove nothing.
+
 ### Provider lock file
 
 [`.terraform.lock.hcl`](terraform/bootstrap/.terraform.lock.hcl) is committed with hashes for
@@ -313,11 +320,11 @@ masks everywhere; variables are never masked.
 **Never create secret values through Terraform.** State is readable by the plan account. Terraform
 creates secret containers; values are added by hand (Secret Manager) or by CI.
 
-
 - [ ] M1: `shared` and `gcp` stacks plan on PR and apply on merge
 - [ ] M7: `azure` stack plans on PR and applies on merge
 - [ ] M8: `aws` stack plans on PR and applies on merge
 - [x] `prod` GitHub environment requires approval (2026-10-31)
+- [ ] `iam-grant-test` workflow passes: `tf-apply` can grant only the runtime roles
 - [ ] Weekly scheduled `terraform plan` drift check enabled
 - [ ] Local admin sessions logged out or downgraded to read-only — consoles are for looking only
 
