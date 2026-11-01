@@ -5,6 +5,8 @@
 #
 # Run from the repo root, after the apply that creates the `neon-owner-url` secret container:
 #   bash infra/scripts/neon-bootstrap.sh
+# To rotate the owner password (e.g. after it was exposed), which also destroys older versions:
+#   bash infra/scripts/neon-bootstrap.sh --rotate-owner
 # Needs: .env with NEON_API_KEY (an organization key for this project's own Neon organization) and
 # GCP_PROJECT_ID; gcloud logged in as the project owner; curl and python3.
 set -euo pipefail
@@ -75,6 +77,29 @@ fi
 
 enabled="$(gcloud secrets versions list "$SECRET" --project "$GCP_PROJECT_ID" \
   --filter="state:ENABLED" --format="value(name)" 2>/dev/null | wc -l | tr -d ' ')"
+rotate="${1:-}"
+if [ "$rotate" = "--rotate-owner" ]; then
+  branch_id="$(neon "$API/projects/$project_id/branches" | python3 -c '
+import json, sys
+print(next(b["id"] for b in json.load(sys.stdin)["branches"] if b["name"] == "main"))')"
+  neon -X POST "$API/projects/$project_id/branches/$branch_id/roles/$OWNER/reset_password" >/dev/null
+  echo "Reset the $OWNER password."
+  sleep 5 # the reset is applied asynchronously
+  owner_url="$(neon "$API/projects/$project_id/connection_uri?database_name=$DATABASE&role_name=$OWNER" |
+    field uri)"
+  old_versions="$(gcloud secrets versions list "$SECRET" --project "$GCP_PROJECT_ID" \
+    --filter="state:ENABLED" --format="value(name)" 2>/dev/null)"
+  printf %s "$owner_url" | gcloud secrets versions add "$SECRET" --project "$GCP_PROJECT_ID" \
+    --data-file=- --quiet >/dev/null
+  unset owner_url
+  echo "Stored the new owner connection string in Secret Manager ($SECRET)."
+  for version in $old_versions; do
+    gcloud secrets versions destroy "$version" --secret "$SECRET" --project "$GCP_PROJECT_ID" --quiet >/dev/null
+    echo "Destroyed the old version $version."
+  done
+  exit 0
+fi
+
 if [ "$enabled" = "0" ]; then
   if [ -z "$owner_url" ]; then
     owner_url="$(neon "$API/projects/$project_id/connection_uri?database_name=$DATABASE&role_name=$OWNER" |

@@ -85,6 +85,24 @@ resource "google_secret_manager_secret" "neon_owner_url" {
   depends_on = [google_project_service.secretmanager]
 }
 
+# Connection string for the `usage_writer` role (INSERT on llm_usage only), which the API uses to
+# record LLM usage. Container only: infra/scripts/neon-role-password.sh sets the role's password and
+# adds the value. Only the runtime account can read it.
+resource "google_secret_manager_secret" "neon_usage_writer_url" {
+  secret_id = "neon-usage-writer-url"
+  labels    = var.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
 # Identity the API runs as on Cloud Run, instead of the default compute account (which has editor).
 resource "google_service_account" "run" {
   account_id   = "chatbot-run"
@@ -94,6 +112,12 @@ resource "google_service_account" "run" {
 # Read access to this one secret only, never project-wide.
 resource "google_secret_manager_secret_iam_member" "run_gemini_api_key" {
   secret_id = google_secret_manager_secret.gemini_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.run.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "run_neon_usage_writer_url" {
+  secret_id = google_secret_manager_secret.neon_usage_writer_url.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.run.email}"
 }
