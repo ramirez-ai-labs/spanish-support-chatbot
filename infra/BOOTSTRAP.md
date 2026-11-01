@@ -324,7 +324,7 @@ creates secret containers; values are added by hand (Secret Manager) or by CI.
 - [ ] M7: `azure` stack plans on PR and applies on merge
 - [ ] M8: `aws` stack plans on PR and applies on merge
 - [x] `prod` GitHub environment requires approval (2026-10-31)
-- [ ] `iam-grant-test` workflow passes: `tf-apply` can grant only the runtime roles
+- [x] `iam-grant-test` workflow passes: `tf-apply` can grant only the runtime roles (2026-10-31)
 - [ ] Weekly scheduled `terraform plan` drift check enabled
 - [ ] Local admin sessions logged out or downgraded to read-only — consoles are for looking only
 
