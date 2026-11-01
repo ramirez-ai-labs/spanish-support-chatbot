@@ -206,7 +206,8 @@ gh variable set CLOUDFLARE_ACCOUNT_ID --body <account-id>
     Secret Manager, BigQuery, Service Usage, service accounts), not `editor`, and its IAM admin
     role is conditioned to grant only an allowlist of runtime roles: it can never grant itself
     owner or editor.
-  - Data Access audit logs on `sts` and `iamcredentials` record every CI login.
+  - Data Access audit logs on `sts` and `iam` (which covers the `iamcredentials` API) record every
+    CI login.
 - **M7:** Azure Entra app registration + federated credentials for this repo
 - **M8:** AWS IAM OIDC provider for GitHub + a deploy role trusted only by this repo
 

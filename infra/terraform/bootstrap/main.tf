@@ -47,7 +47,9 @@ locals {
   ]
 
   # Data Access audit logs for the APIs CI uses to log in, so every token exchange is recorded.
-  audited_services = ["sts.googleapis.com", "iamcredentials.googleapis.com"]
+  # iamcredentials.googleapis.com rejects service-level audit config; its logs are controlled
+  # through iam.googleapis.com.
+  audited_services = ["sts.googleapis.com", "iam.googleapis.com"]
 }
 
 resource "google_project_service" "this" {
