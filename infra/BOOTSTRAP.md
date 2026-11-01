@@ -192,43 +192,79 @@ gh variable set CLOUDFLARE_ACCOUNT_ID --body <account-id>
 
 ## 5. Run the bootstrap stack (locally, once per cloud)
 
-`infra/terraform/bootstrap/` grows one cloud at a time:
+[`infra/terraform/bootstrap/`](terraform/bootstrap/) grows one cloud at a time:
 
-- **M1:** a private, versioned GCS bucket for Terraform state, plus a GCP Workload Identity
-  Federation pool + provider trusting this repo's GitHub Actions
+- **M1 (GCP):** a private, versioned state bucket (us-east1, inside Cloud Storage's always-free
+  regions) and a Workload Identity Federation pool + provider for GitHub Actions. Two service
+  accounts:
+  - `tf-plan`: read-only, usable by any workflow run in this repo, so PR checks can plan. It can
+    read state but never write it (plans run with `-lock=false`).
+  - `tf-apply`: changes infrastructure; usable only by `push` and `workflow_dispatch` runs on
+    `main`. Pull requests get `refs/pull/N/merge`, so they can never impersonate it.
 - **M7:** Azure Entra app registration + federated credentials for this repo
 - **M8:** AWS IAM OIDC provider for GitHub + a deploy role trusted only by this repo
 
-Each addition is a local `plan` + `apply` of the same stack; the existing GCP resources should
-show no changes.
+Trust is pinned to the **numeric repository and owner IDs**, not the name, so a renamed,
+transferred or re-created repo cannot authenticate. Each later addition is a local `plan` +
+`apply` of the same stack; existing resources should show no changes.
 
-Restrict every trust policy to `repo:ramirez-ai-labs/spanish-support-chatbot` (and to `main` /
-the `prod` environment where applicable), so no other repo or fork can assume the roles.
+### First run (GCP, M1)
 
 ```bash
 cd infra/terraform/bootstrap
+cp terraform.tfvars.example terraform.tfvars        # gitignored; fill in the three values
+gh api repos/ramirez-ai-labs/spanish-support-chatbot --jq '.id, .owner.id'
+
+# The state bucket doesn't exist yet: use local state for this one run.
+printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf   # gitignored
+
 terraform init
-
-# Record provider hashes for every OS that runs Terraform, so init works on Windows, macOS
-# and CI from the same committed lock file. Add *_arm64 if any machine is ARM.
-terraform providers lock -platform=windows_amd64 -platform=darwin_amd64 -platform=linux_amd64
-
 terraform plan -out bootstrap.tfplan
 terraform apply bootstrap.tfplan
 ```
 
-Commit `.terraform.lock.hcl`. Rerun the `providers lock` command whenever a provider version
-changes. Then run `terraform init` and `terraform plan` from the other OS to confirm it shows
-no changes.
+### Move the state into the bucket
 
-Record the non-secret outputs (WIF provider name, Azure client/tenant IDs, AWS role ARN) as
-GitHub Actions variables so the CI workflows can use them.
+```bash
+export TF_STATE_BUCKET="$(terraform output -raw state_bucket)"   # read while state is still local
+rm backend_override.tf
+terraform init -migrate-state -backend-config="bucket=$TF_STATE_BUCKET"   # answer "yes"
+terraform plan                                                     # expect: No changes
+rm -f terraform.tfstate terraform.tfstate.backup bootstrap.tfplan  # plan files can hold secrets
+```
+
+From then on, every `init` passes `-backend-config="bucket=$TF_STATE_BUCKET"` (add
+`TF_STATE_BUCKET` to your `.env`).
+
+### Hand the outputs to CI
+
+They grant nothing on their own, so they are Actions **variables**, not secrets. They still stay
+out of committed files.
+
+```bash
+gh variable set TF_STATE_BUCKET  --body "$(terraform output -raw state_bucket)"
+gh variable set GCP_WIF_PROVIDER --body "$(terraform output -raw workload_identity_provider)"
+gh variable set GCP_PLAN_SA      --body "$(terraform output -raw plan_service_account)"
+gh variable set GCP_APPLY_SA     --body "$(terraform output -raw apply_service_account)"
+```
+
+### Provider lock file
+
+[`.terraform.lock.hcl`](terraform/bootstrap/.terraform.lock.hcl) is committed with hashes for
+Windows, macOS (Intel and Apple silicon) and Linux, so `init` gives the same providers
+everywhere. After changing a provider version:
+
+```bash
+terraform providers lock -platform=windows_amd64 -platform=darwin_amd64 \
+  -platform=darwin_arm64 -platform=linux_amd64
+```
+
+Then run `terraform init` and `terraform plan` from the other OS to confirm it shows no changes.
 
 - [ ] M1: GCP bootstrap applied
-- [ ] M1: `.terraform.lock.hcl` committed with Windows, macOS and Linux hashes
+- [ ] M1: state migrated to the bucket; local state and plan files deleted
 - [ ] M1: clean `plan` from the second OS
 - [ ] M1: outputs stored as Actions variables
-- [ ] M1: bootstrap state migrated to the GCS bucket
 - [ ] M7: Azure added to bootstrap; outputs stored as Actions variables
 - [ ] M8: AWS added to bootstrap; outputs stored as Actions variables
 
