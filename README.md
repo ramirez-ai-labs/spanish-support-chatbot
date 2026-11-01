@@ -8,7 +8,8 @@ The goal is to show full system design, not just a chatbot: identity tiers, PII 
 eval gate in CI, tracing, cost tracking, and the same app running natively on GCP, Azure and AWS,
 all on free tiers with synthetic data only.
 
-**Status:** M0, setup and a local bot.
+**Status:** M1, walking skeleton on GCP. M0 (local bot, CI, guardrails) shipped as
+[`v0.0.1`](https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.0.1).
 
 ## Run it locally
 

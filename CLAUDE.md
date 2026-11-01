@@ -16,9 +16,11 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 
 ## Current status
 
-M0 in progress. The repo has docs, `.env.example`, `.gitattributes` and `.terraform-version`;
-no app code or Terraform yet. Before starting work, check which milestone is active (GitHub
-milestones / open issues) and stay inside its scope. Don't build ahead into later milestones unless asked.
+M1 in progress (M0 shipped as `v0.0.1`). The repo has the local bot (`core/`, `adapters/shared/`,
+`apps/api/`, Docker, required CI), five ADRs, and the GCP bootstrap stack applied
+(`infra/terraform/bootstrap/`: state bucket, keyless CI login, gated plan/apply accounts). Before
+starting work, check the active milestone and its issues (`gh issue list --milestone ...`) and stay
+inside their scope. Don't build ahead into later milestones unless asked.
 
 **Working rule: something runs every day.** The whole system is designed up front, but it's built
 as the thinnest slice that works, adding infrastructure only when the next slice needs it. Every

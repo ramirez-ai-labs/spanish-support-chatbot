@@ -74,7 +74,7 @@ git config --global core.longpaths true
 **Line endings.** [`.gitattributes`](../.gitattributes) forces LF, so leave `core.autocrlf` unset
 (or `input`). If a Windows checkout predates `.gitattributes`, run `git add --renormalize .` once.
 
-- [ ] Terraform installed at the version in `.terraform-version` (`terraform version` matches)
+- [x] Terraform installed at the version in `.terraform-version` (`terraform version` matches)
 - [ ] AWS CLI upgraded to current v2 (`winget upgrade Amazon.AWSCLI` / rerun the `.pkg` on macOS)
 - [ ] Azure CLI upgraded (`az upgrade`; `uv tool upgrade azure-cli` if installed with uv)
 
@@ -89,14 +89,15 @@ your gitignored `.env` (and later as GitHub Actions variables), never in committ
 | `chatbot-demo` | `<demo-project-id>` | Linked (Cloud Run and friends) |
 | `chatbot-gemini` | `<gemini-project-id>` | **Not linked**: keeps the Gemini key on the free tier |
 
-- [ ] GCP project `chatbot-demo` created; ID saved as `GCP_PROJECT_ID` in `.env`
-- [ ] GCP project `chatbot-gemini` created; ID saved as `GCP_GEMINI_PROJECT_ID` in `.env`
-- [ ] Billing linked to `chatbot-demo` only (Billing → Account management → linked projects)
-- [ ] Gemini API key created in AI Studio under `chatbot-gemini`; stored in `.env` only
+- [x] GCP project `chatbot-demo` created; ID saved as `GCP_PROJECT_ID` in `.env`
+- [x] GCP project `chatbot-gemini` created; ID saved as `GCP_GEMINI_PROJECT_ID` in `.env`
+- [x] Billing linked to `chatbot-demo` only (Billing → Account management → linked projects)
+- [x] Gemini API key created in AI Studio under `chatbot-gemini`; stored in `.env` only
 - [ ] $1 budget alerts on GCP, Azure and AWS. On GCP, one alert for the whole billing account
-      (it may also pay for other projects) plus one scoped to `chatbot-demo`
+      (it may also pay for other projects) plus one scoped to `chatbot-demo`. GCP done, with
+      $1/month spend caps on Cloud Run and the Gemini API in `chatbot-demo`; Azure and AWS pending
 - [ ] MFA on every account (GCP, Azure, AWS, GitHub, Neon, Cloudflare)
-- [ ] Tag/label convention `project=showcase` documented and applied
+- [x] Tag/label convention `project=showcase` documented and applied
 - [ ] AWS: IAM user for daily work with MFA, used through the `showcase` CLI profile; root used only for account-level tasks
 - [ ] AWS: $100 credit activities completed; any EC2 instance or database created for them deleted immediately
 
@@ -149,10 +150,10 @@ export AWS_PROFILE=showcase
 export GITHUB_TOKEN="$(gh auth token)"
 ```
 
-- [ ] gcloud user + ADC logged in
+- [x] gcloud user + ADC logged in
 - [ ] AWS profile configured
 - [ ] Azure subscription selected
-- [ ] gh logged in with access to `ramirez-ai-labs`
+- [x] gh logged in with access to `ramirez-ai-labs`
 
 ## 4. Provider API tokens (Neon, Cloudflare)
 

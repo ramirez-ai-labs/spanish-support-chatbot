@@ -132,12 +132,12 @@ Done when: accounts are safe, the repo has its guardrails, and a local chatbot a
 
 - [ ] Day 1: MFA on every account; $1 budget alerts on GCP, Azure and AWS; tag everything `project=showcase`
 - [ ] Day 1: GCP projects `chatbot-demo` (billing on) and `chatbot-gemini` (no billing); Gemini API key; start `infra/BOOTSTRAP.md` for manual steps
-- [ ] Day 1: monorepo `spanish-support-chatbot` in `ramirez-ai-labs` with Apache 2.0 license, `.gitignore`, `.env.example` and the folder skeleton, merged through your first PR
-- [ ] Day 2: local chatbot: minimal FastAPI `/v1/chat` streaming from Gemini behind the `LLMProvider` port, run with `docker compose`
-- [ ] Day 2: one-page test UI (or curl) that shows the streamed answer
-- [ ] Day 3: SDLC basics: branch protection on `main`, PR template, conventional commits, GitHub milestones M0 to M9
-- [ ] Day 3: basic CI: Ruff, mypy, pytest, `import-linter` as required checks; secret scanning and Dependabot on
-- [ ] Day 3: first ADRs: monorepo, shared Neon, Gemini on every cloud, serverless containers instead of Kubernetes, "something runs every day"
+- [x] Day 1: monorepo `spanish-support-chatbot` in `ramirez-ai-labs` with Apache 2.0 license, `.gitignore`, `.env.example` and the folder skeleton, merged through your first PR
+- [x] Day 2: local chatbot: minimal FastAPI `/v1/chat` streaming from Gemini behind the `LLMProvider` port, run with `docker compose`
+- [x] Day 2: one-page test UI (or curl) that shows the streamed answer
+- [x] Day 3: SDLC basics: branch protection on `main`, PR template, conventional commits, GitHub milestones M0 to M9
+- [x] Day 3: basic CI: Ruff, mypy, pytest, `import-linter` as required checks; secret scanning and Dependabot on
+- [x] Day 3: first ADRs: monorepo, shared Neon, Gemini on every cloud, serverless containers instead of Kubernetes, "something runs every day"
 - [ ] Anytime: AWS IAM user for daily work, stop using root; earn the $100 credit activities, deleting the EC2 and database right after
 
 ### M1 · Design doc and walking skeleton on GCP (Nov 9–15)
