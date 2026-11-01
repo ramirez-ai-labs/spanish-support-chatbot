@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Asistente de soporte</title>
+    <meta name="description" content="Asistente de soporte en español de un banco ficticio (demo con datos sintéticos)." />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="config.js"></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Asistente de soporte</h1>
+        <p class="note">Banco ficticio · demo con datos sintéticos. No escribas datos reales.</p>
+      </header>
+
+      <section id="log" aria-live="polite" aria-label="Conversación"></section>
+
+      <form id="chat" autocomplete="off">
+        <label for="message" class="visually-hidden">Tu pregunta</label>
+        <textarea id="message" name="message" rows="2" maxlength="2000" required
+          placeholder="Escribe tu pregunta, por ejemplo: ¿Cómo bloqueo mi tarjeta?"></textarea>
+        <div class="row">
+          <div id="turnstile"></div>
+          <button type="submit" id="send">Enviar</button>
+        </div>
+        <p id="status" class="note" role="status"></p>
+      </form>
+    </main>
+  </body>
+</html>
