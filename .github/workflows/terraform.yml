@@ -2,8 +2,9 @@ name: terraform
 
 # Plans the gcp stack on every PR (read-only account), proves the apply account is unreachable
 # from PRs and from jobs outside the `prod` environment, and on main, after one approval, applies
-# the stack and deploys the API image to Cloud Run. Bootstrap (infra/terraform/bootstrap) is never
-# applied from CI.
+# the shared and gcp stacks and deploys the API image to Cloud Run. The shared stack (Cloudflare) is
+# only planned inside that approved job: its token is a `prod` environment secret, and its state is
+# unreadable by tf-plan. Bootstrap (infra/terraform/bootstrap) is never applied from CI.
 #
 # Actions logs are public on this repo. Project-specific values are Actions *secrets* (GitHub
 # masks secrets everywhere; it never masks variables), the derived project number is masked
@@ -15,6 +16,7 @@ on:
     branches: [main]
     paths:
       - "infra/terraform/gcp/**"
+      - "infra/terraform/shared/**"
       - ".github/workflows/terraform.yml"
       - "core/**"
       - "adapters/**"
@@ -181,6 +183,16 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_APPLY_SA }}
+      - name: Shared stack (Cloudflare Pages and Turnstile)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          shared=infra/terraform/shared
+          terraform -chdir="$shared" init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -lockfile=readonly
+          terraform -chdir="$shared" plan -no-color -out=tfplan | tee shared-plan.txt
+          terraform -chdir="$shared" apply -no-color tfplan
+          { echo "### shared stack applied"; grep -E '^(Plan:|No changes)' shared-plan.txt || true; } >> "$GITHUB_STEP_SUMMARY"
       - name: Init
         run: terraform -chdir="$STACK" init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -lockfile=readonly
       - name: Plan

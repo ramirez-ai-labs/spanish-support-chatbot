@@ -28,3 +28,7 @@ updates:
     directory: /infra/terraform/gcp
     schedule:
       interval: weekly
+  - package-ecosystem: terraform
+    directory: /infra/terraform/shared
+    schedule:
+      interval: weekly

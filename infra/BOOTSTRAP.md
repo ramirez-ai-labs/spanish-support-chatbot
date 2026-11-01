@@ -195,7 +195,7 @@ gh secret set CLOUDFLARE_ACCOUNT_ID --env prod
 
 - [x] Neon: an organization of its own, its organization API key in `.env` (2026-11-01)
 - [x] Cloudflare: account API token (Pages and Turnstile only) and account ID in `.env` (2026-11-01)
-- [ ] Cloudflare values stored as `prod` environment secrets (with the `shared` stack)
+- [x] Cloudflare values stored as `prod` environment secrets (2026-11-01)
 
 ### Create the Neon project (M1, once)
 
@@ -217,7 +217,7 @@ secret is only filled while it's empty.
 App roles (`app_gcp`, `usage_writer`, `indexer`) are created later by SQL migrations (#20), each
 with only its own grants. Their passwords go straight into their own secrets.
 
-- [ ] Neon project created and the owner connection string stored
+- [x] Neon project created and the owner connection string stored (2026-11-01)
 
 ## 5. Run the bootstrap stack (locally, once per cloud)
 
@@ -340,7 +340,7 @@ applies until the bootstrap stack is updated.
 | Every PR | `tf-apply-gate`: tries to act as `tf-apply` and **must be refused** | (refused) |
 | Every PR | `tf-scan`: Trivy misconfiguration scan; HIGH or CRITICAL fails | none |
 | Merge to `main` touching `infra/terraform/gcp/` or the app (`core/`, `adapters/`, `apps/`, `Dockerfile`, dependencies) | `tf-apply-gate-main`: tries `tf-apply` without `prod`, **must be refused** | (refused) |
-| Same, then **you approve** | `tf-apply`: plan and apply, build and push the image, deploy it to Cloud Run, smoke test `/health` and one streamed answer | `tf-apply` |
+| Same (or `infra/terraform/shared/`), then **you approve** | `tf-apply`: plan and apply the `shared` stack (Cloudflare; only here, since its token is a `prod` environment secret) and the `gcp` stack, build and push the image, deploy it to Cloud Run, smoke test `/health`, a forged token and one streamed answer | `tf-apply` |
 
 Actions logs are public on this repo, so project-specific values are Actions **secrets**, which GitHub
 masks everywhere; variables are never masked.
@@ -378,7 +378,7 @@ To rotate, add a new version the same way and disable the old one
   truncated paste stores a key Gemini rejects with 401
 
 - [x] M1: `gcp` stack plans on PR and applies on merge, with the app deploy (2026-11-01)
-- [ ] M1: `shared` stack plans on PR and applies on merge
+- [ ] M1: `shared` stack applies on merge after approval. It has no PR plan: its token is a `prod` environment secret, and tf-plan can't read its state
 - [ ] M7: `azure` stack plans on PR and applies on merge
 - [ ] M8: `aws` stack plans on PR and applies on merge
 - [x] `prod` GitHub environment requires approval (2026-10-31)
