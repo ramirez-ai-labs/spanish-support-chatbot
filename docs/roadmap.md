@@ -110,7 +110,7 @@ Everything is Terraform, applied by CI; the web consoles are for looking only.
 2. **Bootstrap Terraform, run locally once:** a private, versioned GCS state bucket and keyless GitHub OIDC trust, GCP first in M1; Azure and AWS are added in M7 and M8.
 3. **Main Terraform, run by CI:** separate stacks with their own state: `shared` (GitHub, Cloudflare, Neon), `gcp`, `azure`, `aws`, each with `dev` and `prod` variables.
 
-- PRs post `terraform plan` as a comment; merging runs `apply`, with approval required for `prod`.
+- PRs run `terraform plan` with a read-only account and publish only the plan counts in the job summary, never the full plan: the repo and its Actions logs are public. Merging runs `apply` and the deploy in one job, after approval in the `prod` environment.
 - A weekly scheduled plan catches drift from manual console changes.
 - Not in Terraform: app version rollouts (CI deploy step), database schema (`migrations/`), test users (seed script), the Gemini key's value (pasted once into each secret store).
 
