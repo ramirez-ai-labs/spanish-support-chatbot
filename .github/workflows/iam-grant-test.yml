@@ -1,0 +1,47 @@
+name: iam-grant-test
+
+# Layer 3 security test, run by hand after any change to the bootstrap IAM. Acts as tf-apply and
+# checks it can grant only the runtime roles in grantable_roles (infra/scripts/iam-grant-test.sh).
+# Runs in the approval-gated prod environment: only prod jobs on main can act as tf-apply.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Same group as terraform.yml on main, so it never edits project IAM during an apply.
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  grant-test:
+    name: iam-grant-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prod # requires the owner's approval; the GCP trust requires this environment
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Mask the project number (derived from a secret, so not masked automatically)
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+        run: |
+          number="$(echo "$WIF_PROVIDER" | cut -d/ -f2)"
+          if [ -n "$number" ]; then echo "::add-mask::$number"; fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Log in as the apply account (keyless, prod only)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_APPLY_SA }}
+      - name: Try allowed and forbidden grants on a throwaway account
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          RUN_ID: ${{ github.run_id }}
+        run: bash infra/scripts/iam-grant-test.sh
