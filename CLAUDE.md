@@ -124,7 +124,9 @@ evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,d
   Run the app with `docker compose up --build`.
 - Infra is Terraform only, applied by CI. Never suggest console click-ops for anything that should be
   in Terraform. Manual one-time steps go in `infra/BOOTSTRAP.md`. Not in Terraform: app rollouts,
-  DB schema (`migrations/`), test users (seed script), the Gemini key value.
+  DB schema (`migrations/`), test users (seed script), the Gemini key value, and Neon (ADR 0006):
+  the project comes from `infra/scripts/neon-bootstrap.sh`, roles and grants from SQL migrations, and
+  passwords go straight into Secret Manager. The Neon API key never goes into CI.
 - Containers: one slim multi-stage image per cloud, models baked in. No Kubernetes (see ADR).
 - Major design choices get an ADR in `docs/adr/`. Update `docs/design.md` when architecture changes.
 - Eval code from `rag-evaluation-lab` and `chatbot-evaluation-system` is installed from pinned git

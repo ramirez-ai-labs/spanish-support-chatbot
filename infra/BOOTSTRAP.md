@@ -41,7 +41,7 @@ labeled per shell.
 | docker | Yes | Local `docker-compose` dev, image builds | `winget install Docker.DockerDesktop` (WSL2 backend) | `brew install --cask docker` |
 | python + uv | Yes | App, tests, tooling | `winget install Python.Python.3.12` + `winget install astral-sh.uv` | `brew install python@3.12 uv` |
 | node | Optional | Needed only for the npm tools below | `winget install OpenJS.NodeJS.LTS` | `brew install node` |
-| neonctl | Optional | Branches and connection strings while debugging (Terraform uses the API key) | `npm i -g neonctl` | `npm i -g neonctl` |
+| neonctl | Optional | Branches and connection strings while debugging (the bootstrap script uses the API directly) | `npm i -g neonctl` | `npm i -g neonctl` |
 | wrangler | Optional | Local Pages testing (Terraform uses the API token) | `npm i -g wrangler` | `npm i -g wrangler` |
 
 **macOS: AWS CLI.** Use AWS's signed installer instead of the Homebrew formula, which compiles
@@ -158,14 +158,18 @@ export GITHUB_TOKEN="$(gh auth token)"
 
 ## 4. Provider API tokens (Neon, Cloudflare)
 
-These providers don't support OIDC, so they're the only long-lived credentials. Scope them tightly,
-store them as environment variables locally and as GitHub Actions secrets for CI.
+These providers don't support OIDC, so they're the only long-lived credentials. Scope them tightly
+and keep them out of anything a PR can reach.
 
-| Secret | Where to create | Scope |
-| --- | --- | --- |
-| `NEON_API_KEY` | Neon console → Account → API keys | This project only, if org-scoped keys are available |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → API tokens | Account-scoped: Pages edit, Turnstile edit. Not the global API key |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard | Not secret, but stored as an Actions secret so it is masked in public logs |
+| Value | Where to create | Scope | Lives in |
+| --- | --- | --- | --- |
+| `NEON_API_KEY` | A Neon **organization of its own** for this project → Settings → API keys (organization key) | Can't reach other projects' databases | `.env` only. **Never in CI** (ADR 0006) |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare → Manage Account → **Account API Tokens** → custom token | Cloudflare Pages: Edit, Turnstile: Edit. Never the global API key | `.env`, and the `prod` **environment** secret |
+| `CLOUDFLARE_ACCOUNT_ID` | `npx wrangler whoami`, or the dashboard | Not secret, but kept out of public logs | `.env`, and the `prod` **environment** secret |
+
+The Cloudflare values are **environment** secrets of `prod`, not repository secrets, so only jobs you
+approve can read them and no PR job ever sees them. A Cloudflare token can't be limited to one Pages
+project, so it reaches every Pages site in the account.
 
 For local runs, copy [`.env.example`](../.env.example) to `.env` (gitignored), fill it in, and load
 it into the current shell:
@@ -181,16 +185,39 @@ Get-Content .env | Where-Object { $_ -match '^\s*([^#][^=]*)=(.*)$' } |
 set -a; source .env; set +a
 ```
 
-Store the same values for CI (prompts for the secret, so it never lands in shell history):
+Store the Cloudflare values for CI as `prod` environment secrets (each prompts for its value, so it
+never lands in shell history):
 
 ```bash
-gh secret set NEON_API_KEY
-gh secret set CLOUDFLARE_API_TOKEN
-gh secret set CLOUDFLARE_ACCOUNT_ID
+gh secret set CLOUDFLARE_API_TOKEN --env prod
+gh secret set CLOUDFLARE_ACCOUNT_ID --env prod
 ```
 
-- [ ] Neon API key created and stored
-- [ ] Cloudflare token created and stored
+- [x] Neon: an organization of its own, its organization API key in `.env` (2026-11-01)
+- [x] Cloudflare: account API token (Pages and Turnstile only) and account ID in `.env` (2026-11-01)
+- [ ] Cloudflare values stored as `prod` environment secrets (with the `shared` stack)
+
+### Create the Neon project (M1, once)
+
+Neon isn't in Terraform ([ADR 0006](../docs/adr/0006-neon-outside-terraform.md)): its provider saves
+live passwords in state on every refresh, and roles it creates get `neon_superuser`. Instead, after
+the apply that creates the empty `neon-owner-url` secret, run the checked-in script from the repo
+root:
+
+```bash
+bash infra/scripts/neon-bootstrap.sh
+```
+
+It creates the `spanish-support-chatbot` project in AWS us-east-1 (Postgres 17, compute fixed at
+0.25 CU, so the free 100 CU-hours a month last 400 hours) with the `main` branch, the `chatbot`
+database and the `chatbot_owner` role. It pipes the owner's connection string into
+`neon-owner-url` without printing it. It's safe to rerun: an existing project is kept, and the
+secret is only filled while it's empty.
+
+App roles (`app_gcp`, `usage_writer`, `indexer`) are created later by SQL migrations (#20), each
+with only its own grants. Their passwords go straight into their own secrets.
+
+- [ ] Neon project created and the owner connection string stored
 
 ## 5. Run the bootstrap stack (locally, once per cloud)
 
