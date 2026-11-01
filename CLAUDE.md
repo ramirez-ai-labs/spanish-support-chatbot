@@ -16,10 +16,16 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 
 ## Current status
 
-M1 in progress (M0 shipped as `v0.0.1`). The repo has the local bot (`core/`, `adapters/shared/`,
-`apps/api/`, Docker, required CI), five ADRs, and the GCP bootstrap stack applied
-(`infra/terraform/bootstrap/`: state bucket, keyless CI login, gated plan/apply accounts). Before
-starting work, check the active milestone and its issues (`gh issue list --milestone ...`) and stay
+M1 in progress (M0 shipped as `v0.0.1`). The repo has:
+
+- the bot (`core/`, `adapters/shared/`, `adapters/gcp/`, `apps/api/`), with tracing to Cloud Trace
+- `docs/design.md` and five ADRs
+- the GCP bootstrap stack (`infra/terraform/bootstrap/`: state bucket, keyless CI login, gated
+  plan/apply accounts)
+- the `gcp` stack (Artifact Registry, the Gemini key secret, Cloud Run)
+
+The bot is live on Cloud Run. The `tf-apply` job in `terraform.yml` applies, builds, deploys and
+smoke tests after the `prod` approval. Before starting work, check the active milestone and its issues (`gh issue list --milestone ...`) and stay
 inside their scope. Don't build ahead into later milestones unless asked.
 
 **Working rule: something runs every day.** The whole system is designed up front, but it's built

@@ -349,7 +349,8 @@ To rotate, add a new version the same way and disable the old one
 - [x] M1: Gemini key added to Secret Manager (2026-10-31). Check the length before adding: a
   truncated paste stores a key Gemini rejects with 401
 
-- [ ] M1: `shared` and `gcp` stacks plan on PR and apply on merge
+- [x] M1: `gcp` stack plans on PR and applies on merge, with the app deploy (2026-11-01)
+- [ ] M1: `shared` stack plans on PR and applies on merge
 - [ ] M7: `azure` stack plans on PR and applies on merge
 - [ ] M8: `aws` stack plans on PR and applies on merge
 - [x] `prod` GitHub environment requires approval (2026-10-31)
