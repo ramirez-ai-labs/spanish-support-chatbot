@@ -74,7 +74,7 @@ else
 fi
 
 enabled="$(gcloud secrets versions list "$SECRET" --project "$GCP_PROJECT_ID" \
-  --filter="state:ENABLED" --format="value(name)" | wc -l | tr -d ' ')"
+  --filter="state:ENABLED" --format="value(name)" 2>/dev/null | wc -l | tr -d ' ')"
 if [ "$enabled" = "0" ]; then
   if [ -z "$owner_url" ]; then
     owner_url="$(neon "$API/projects/$project_id/connection_uri?database_name=$DATABASE&role_name=$OWNER" |
