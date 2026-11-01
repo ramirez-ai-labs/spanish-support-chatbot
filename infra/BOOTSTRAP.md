@@ -237,9 +237,9 @@ uv run python migrations/migrate.py            # apply what's pending
 unset MIGRATIONS_DATABASE_URL
 ```
 
-When a migration adds an app role, give it a password. The script generates one, sends Postgres only
-its SCRAM hash, and stores the role's connection string in its own secret without printing it. Run it
-again to rotate (then redeploy):
+When a migration adds an app role, give it a password. The script generates one, sets it over the
+owner's TLS connection (Neon accepts only plain passwords, not SCRAM hashes), and stores the role's
+connection string in its own secret without printing it. Run it again to rotate (then redeploy):
 
 ```bash
 bash infra/scripts/neon-role-password.sh usage_writer   # -> neon-usage-writer-url
