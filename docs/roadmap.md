@@ -146,7 +146,6 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 **Demo:** ask in Spanish and get a streamed answer; sign in and show the token check, the trace and the token count for that call.
 
 - [x] Bootstrap Terraform run locally, GCP only: GCS state bucket and GitHub OIDC trust for GCP
-- [ ] MFA on GitHub and Google first (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare before the `shared` stack uses them. Azure and AWS get MFA in M7 and M8
 - [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile, Neon project in AWS US East 1 with pgvector, `dev` branch and roles (`indexer`, `app_gcp`, `usage_writer`)
 - [ ] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Firestore, Secret Manager, BigQuery dataset, budget (Cloud Run, Artifact Registry and Secret Manager done; BigQuery comes with usage events, Firestore with sessions; the budget stays manual)
 - [x] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
@@ -167,6 +166,7 @@ Done when: answers cite the right market's policy chunk, starting with three mar
 
 **Demo:** the same question as a US customer and a Mexican customer gets different answers, each with sources.
 
+- [ ] First: MFA on GitHub and Google (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare. Moved from M1; Azure and AWS get MFA in M7 and M8
 - [ ] 20 to 40 synthetic Spanish FAQ and policy docs, tagged by market (e.g., US, MX, PE) or all; the market list is config, so adding a country is data, not code
 - [ ] Indexing job in GitHub Actions: clean, chunk by headings, metadata, e5 `passage:` embeddings, upsert by content hash
 - [ ] Index into the Neon `dev` branch first; promote to `main` only after checks pass
