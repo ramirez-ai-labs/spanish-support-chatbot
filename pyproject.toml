@@ -12,6 +12,7 @@ dependencies = [
     "opentelemetry-api>=1.45.2",
     "opentelemetry-sdk>=1.45.2",
     "pyjwt[crypto]>=2.15.1",
+    "psycopg[binary]>=3.3.6",
 ]
 
 [project.optional-dependencies]
