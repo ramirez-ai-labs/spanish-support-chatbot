@@ -320,6 +320,34 @@ masks everywhere; variables are never masked.
 **Never create secret values through Terraform.** State is readable by the plan account. Terraform
 creates secret containers; values are added by hand (Secret Manager) or by CI.
 
+### Add the Gemini key (M1, once)
+
+After the apply that creates the `gemini-api-key` secret, add its value from your `.env`. It is
+piped in, so the key never appears in your shell history or on screen:
+
+```bash
+# macOS (zsh/bash), from the repo root
+set -a; source .env; set +a
+printf %s "$GEMINI_API_KEY" | gcloud secrets versions add gemini-api-key \
+  --data-file=- --project "$GCP_PROJECT_ID"
+gcloud secrets versions list gemini-api-key --project "$GCP_PROJECT_ID"   # one ENABLED version
+```
+
+```powershell
+# Windows (PowerShell), from the repo root, after loading .env as in section 4. Piping would add a
+# newline to the key, so it goes through a temporary file written without one.
+$f = New-TemporaryFile
+[IO.File]::WriteAllText($f, $env:GEMINI_API_KEY)
+gcloud secrets versions add gemini-api-key --data-file=$f --project $env:GCP_PROJECT_ID
+Remove-Item $f
+gcloud secrets versions list gemini-api-key --project $env:GCP_PROJECT_ID   # one ENABLED version
+```
+
+To rotate, add a new version the same way and disable the old one
+(`gcloud secrets versions disable <n>`). Only the `chatbot-run` service account can read it.
+
+- [ ] M1: Gemini key added to Secret Manager
+
 - [ ] M1: `shared` and `gcp` stacks plan on PR and apply on merge
 - [ ] M7: `azure` stack plans on PR and applies on merge
 - [ ] M8: `aws` stack plans on PR and applies on merge
