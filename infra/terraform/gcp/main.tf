@@ -67,6 +67,24 @@ resource "google_secret_manager_secret" "gemini_api_key" {
   depends_on = [google_project_service.secretmanager]
 }
 
+# Connection string for the Neon project owner, used only to run migrations and set role passwords
+# (ADR 0006). Container only: infra/scripts/neon-bootstrap.sh adds the value. Nothing is granted
+# access, so only the project owner can read it; the app gets its own least-privilege role.
+resource "google_secret_manager_secret" "neon_owner_url" {
+  secret_id = "neon-owner-url"
+  labels    = var.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
 # Identity the API runs as on Cloud Run, instead of the default compute account (which has editor).
 resource "google_service_account" "run" {
   account_id   = "chatbot-run"

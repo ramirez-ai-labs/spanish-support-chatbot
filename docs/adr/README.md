@@ -11,6 +11,7 @@ record that links back.
 | [0003](0003-gemini-on-every-cloud.md) | Gemini free tier on every cloud, Flash-Lite by default | Accepted |
 | [0004](0004-serverless-containers-not-kubernetes.md) | Serverless containers instead of Kubernetes | Accepted |
 | [0005](0005-something-runs-every-day.md) | Something runs every day: incremental delivery | Accepted |
+| [0006](0006-neon-outside-terraform.md) | Neon is created by a script, and its roles live in SQL migrations | Accepted |
 
 ## Template
 

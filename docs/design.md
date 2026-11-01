@@ -273,6 +273,7 @@ while the bill is $0.
 | Secret values | Added by hand, read only by the runtime account | Created by Terraform or CI | State and CI logs never hold the key |
 | Endpoint exposure | Public, tiers enforced in the app | Private behind IAP or an API gateway | Anonymous visitors are a real tier; abuse is limited by Turnstile (M1) and rate limits (M5) |
 | Deploy gate | One approval covers apply and deploy | Separate approvals | One click per merge; the gate is still enforced by Google, not just GitHub |
+| Neon setup | Checked-in script, roles in SQL migrations ([ADR 0006](adr/0006-neon-outside-terraform.md)) | Terraform provider | Its provider saves live passwords in state, which PR plans can read, and its roles get `neon_superuser` |
 | Hot path | One model call, no router | Router model plus a specialist | Lower latency and cost; tool use handles the cases a router would |
 
 ## 10. Risks and open questions

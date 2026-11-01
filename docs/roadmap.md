@@ -108,11 +108,11 @@ Everything is Terraform, applied by CI; the web consoles are for looking only.
 
 1. **Manual, once:** accounts, billing, the Gemini key in AI Studio, AWS credit activities. Documented in `infra/BOOTSTRAP.md`.
 2. **Bootstrap Terraform, run locally once:** a private, versioned GCS state bucket and keyless GitHub OIDC trust, GCP first in M1; Azure and AWS are added in M7 and M8.
-3. **Main Terraform, run by CI:** separate stacks with their own state: `shared` (GitHub, Cloudflare, Neon), `gcp`, `azure`, `aws`, each with `dev` and `prod` variables.
+3. **Main Terraform, run by CI:** separate stacks with their own state: `shared` (GitHub, Cloudflare), `gcp`, `azure`, `aws`, each with `dev` and `prod` variables. Neon is scripted instead ([ADR 0006](adr/0006-neon-outside-terraform.md)).
 
 - PRs run `terraform plan` with a read-only account and publish only the plan counts in the job summary, never the full plan: the repo and its Actions logs are public. Merging runs `apply` and the deploy in one job, after approval in the `prod` environment.
 - A weekly scheduled plan catches drift from manual console changes.
-- Not in Terraform: app version rollouts (CI deploy step), database schema (`migrations/`), test users (seed script), the Gemini key's value (pasted once into each secret store).
+- Not in Terraform: app version rollouts (CI deploy step), database schema (`migrations/`), test users (seed script), the Gemini key's value (pasted once into each secret store), and Neon: the project from a checked-in script, roles and grants from SQL migrations ([ADR 0006](adr/0006-neon-outside-terraform.md)).
 
 ## Milestones at a glance
 
@@ -146,7 +146,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 **Demo:** ask in Spanish and get a streamed answer; sign in and show the token check, the trace and the token count for that call.
 
 - [x] Bootstrap Terraform run locally, GCP only: GCS state bucket and GitHub OIDC trust for GCP
-- [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile, Neon project in AWS US East 1 with pgvector, `dev` branch and roles (`indexer`, `app_gcp`, `usage_writer`)
+- [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile. The Neon project in AWS US East 1 comes from `infra/scripts/neon-bootstrap.sh`, and its roles (`indexer`, `app_gcp`, `usage_writer`) and pgvector come from SQL migrations with #20 ([ADR 0006](adr/0006-neon-outside-terraform.md)); the `dev` branch comes with M2 indexing
 - [ ] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Firestore, Secret Manager, BigQuery dataset, budget (Cloud Run, Artifact Registry and Secret Manager done; BigQuery comes with usage events, Firestore with sessions; the budget stays manual)
 - [x] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
 - [x] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
