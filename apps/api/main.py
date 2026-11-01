@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from core.chat import MAX_MESSAGE_CHARS, ChatService
 from core.identity import ANONYMOUS, Caller, InvalidToken, caller_for
-from core.ports import IdentityProvider, LLMProvider
+from core.ports import IdentityProvider, LLMProvider, UsageSink
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -43,6 +43,18 @@ def build_llm() -> LLMProvider:
             model=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
         )
     raise ValueError(f"Unknown LLM_PROVIDER: {provider!r} (expected 'gemini' or 'mock')")
+
+
+def build_usage_sink() -> UsageSink | None:
+    """Pick where usage records go from USAGE_SINK; none by default (tests, local runs)."""
+    sink = os.environ.get("USAGE_SINK", "none")
+    if sink == "none":
+        return None
+    if sink == "neon":
+        from adapters.shared.neon_usage import NeonUsageSink
+
+        return NeonUsageSink(os.environ["NEON_USAGE_URL"])
+    raise ValueError(f"Unknown USAGE_SINK: {sink!r} (expected 'neon' or 'none')")
 
 
 def build_identity() -> IdentityProvider | None:
@@ -83,12 +95,14 @@ def create_app(
     llm: LLMProvider | None = None,
     flush_traces: Callable[[], None] | None = None,
     identity: IdentityProvider | None = None,
+    usage: UsageSink | None = None,
 ) -> FastAPI:
     if llm is None:
         llm = build_llm()
         flush_traces = build_tracing()
         identity = build_identity()
-    chat = ChatService(llm)
+        usage = build_usage_sink()
+    chat = ChatService(llm, usage=usage, cloud=os.environ.get("CLOUD", "local"))
 
     def identify(authorization: str | None) -> Caller:
         """Anonymous without a token; raises InvalidToken for a token that does not verify."""

@@ -156,7 +156,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 - [ ] Contract test suite started: every adapter for a port must pass the same tests
 - [ ] Chat UI on Cloudflare Pages: streaming, `traceparent` header, Turnstile, Web Analytics
 - [x] OpenTelemetry in the API, exporting to Cloud Trace and Cloud Logging
-- [ ] `migrations/` for `llm_usage` and `model_prices`; usage event in `LLMProvider` with tokens, model, `purpose`, `prompt_parts`, latency; async write
+- [x] `migrations/` for `llm_usage` and `model_prices`; usage event in `LLMProvider` with tokens, model, `purpose`, `prompt_parts`, latency; async write
 - [x] CI deploy via Workload Identity Federation, post-deploy smoke test
 - [ ] Tag `v0.1.0`
 

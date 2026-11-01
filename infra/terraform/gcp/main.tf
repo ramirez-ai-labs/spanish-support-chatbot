@@ -201,6 +201,23 @@ resource "google_cloud_run_v2_service" "api" {
         value = "firebase" # verifies Firebase ID tokens for this project; no token = anonymous
       }
       env {
+        name  = "CLOUD"
+        value = "gcp" # tags usage rows, so the cross-cloud dashboard can split by cloud
+      }
+      env {
+        name  = "USAGE_SINK"
+        value = "neon"
+      }
+      env {
+        name = "NEON_USAGE_URL" # usage_writer: INSERT on llm_usage only
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.neon_usage_writer_url.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
         name = "GEMINI_API_KEY"
         value_source {
           secret_key_ref {
@@ -224,6 +241,7 @@ resource "google_cloud_run_v2_service" "api" {
     google_project_service.run,
     google_project_service.cloudtrace,
     google_secret_manager_secret_iam_member.run_gemini_api_key,
+    google_secret_manager_secret_iam_member.run_neon_usage_writer_url,
   ]
 }
 

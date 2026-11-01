@@ -250,7 +250,7 @@ bash infra/scripts/neon-role-password.sh usage_writer   # -> neon-usage-writer-u
 | `chatbot_owner` | everything (Neon admin role); migrations only | `neon-owner-url` | you |
 | `usage_writer` | `INSERT` into `llm_usage`, nothing else | `neon-usage-writer-url` | `chatbot-run` |
 
-- [ ] M1: migrations 0001–0002 applied; `usage_writer` password set
+- [x] M1: migrations 0001–0002 applied; `usage_writer` password set (2026-11-01)
 
 ## 5. Run the bootstrap stack (locally, once per cloud)
 
