@@ -1,8 +1,9 @@
 """Sets a Neon role's password and prints that role's connection string, for piping only.
 
-Reads the owner connection string on stdin, generates a random password, and sends Postgres only
-its SCRAM hash, so the plain password never reaches the server or its logs. Prints the role's
-connection string on stdout, and refuses to run if stdout is a terminal. Use it through
+Reads the owner connection string on stdin, generates a random password and sets it over the
+owner's TLS connection. Neon requires the plain password, not a SCRAM hash: its control plane
+intercepts ALTER ROLE ... PASSWORD to sync the role, and rejects pre-hashed values. Prints the
+role's connection string on stdout, and refuses to run if stdout is a terminal. Use it through
 infra/scripts/neon-role-password.sh, which pipes the result straight into Secret Manager.
 """
 
@@ -32,10 +33,9 @@ def main() -> int:
         if exists is None:
             print(f"Role {role} doesn't exist yet: run the migrations first.", file=sys.stderr)
             return 1
-        scram = conn.pgconn.encrypt_password(password.encode(), role.encode(), b"scram-sha-256")
         conn.execute(
             sql.SQL("alter role {} with login password {}").format(
-                sql.Identifier(role), sql.Literal(scram.decode())
+                sql.Identifier(role), sql.Literal(password)
             )
         )
 
