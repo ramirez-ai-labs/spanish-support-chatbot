@@ -25,8 +25,11 @@ PARENT_SPAN_ID = "00f067aa0ba902b7"
 
 @pytest.fixture(autouse=True)
 def clear_spans() -> Iterator[None]:
+    # Flush first: spans are exported by a background batch thread and could land in a later test.
+    FLUSH()
     EXPORTER.clear()
     yield
+    FLUSH()
     EXPORTER.clear()
 
 
@@ -131,3 +134,53 @@ def test_unknown_trace_exporter_is_rejected(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("TRACE_EXPORTER", "nope")
     with pytest.raises(ValueError, match="Unknown TRACE_EXPORTER"):
         build_tracing()
+
+
+def test_refused_token_is_still_one_trace_with_the_reason() -> None:
+    # No identity provider is configured here, so any token is refused.
+    chat(
+        MockLLM(),
+        headers={
+            "traceparent": f"00-{TRACE_ID}-{PARENT_SPAN_ID}-01",
+            "Authorization": "Bearer not-a-real-token",
+        },
+    )
+
+    spans = spans_by_name()
+    assert set(spans) == {"POST /v1/chat"}  # refused before the model step
+    request = spans["POST /v1/chat"]
+    assert f"{request.context.trace_id:032x}" == TRACE_ID
+    assert request.attributes is not None
+    assert request.attributes["chat.outcome"] == "rejected"
+    assert request.attributes["auth.rejected_reason"] == "no_identity_provider"
+    assert request.attributes["http.response.status_code"] == 401
+    assert request.status.status_code == StatusCode.UNSET  # client error, not a server fault
+    assert "not-a-real-token" not in str(request.attributes)
+
+
+def test_rejection_log_line_is_written_inside_the_request_span() -> None:
+    seen: list[int] = []
+
+    class TraceOfEachRecord(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            seen.append(trace.get_current_span().get_span_context().trace_id)
+
+    handler = TraceOfEachRecord()
+    logger = logging.getLogger("apps.api.main")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        chat(MockLLM(), headers={"Authorization": "Bearer not-a-real-token"})
+    finally:
+        logger.removeHandler(handler)
+
+    assert seen == [spans_by_name()["POST /v1/chat"].context.trace_id]
+
+
+def test_accepted_request_records_the_tier_and_status() -> None:
+    chat(MockLLM())
+
+    attributes = spans_by_name()["POST /v1/chat"].attributes
+    assert attributes is not None
+    assert attributes["auth.tier"] == "anonymous"
+    assert attributes["http.response.status_code"] == 200
