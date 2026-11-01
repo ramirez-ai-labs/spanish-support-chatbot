@@ -225,23 +225,55 @@ resource "google_project_iam_audit_config" "ci_login" {
   }
 }
 
-# Plans run with -lock=false, so the plan account only reads state and a PR can never write it.
-# It can't read the `shared` stack's state at all. Cloudflare's provider stores the Turnstile secret
-# there, and that stack is only planned inside the approved prod job, as tf-apply.
-resource "google_storage_bucket_iam_member" "plan_state" {
-  bucket = google_storage_bucket.tfstate.name
-  role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${google_service_account.plan.email}"
-
-  condition {
-    title       = "not-shared-state"
-    description = "Every stack's state except shared/, which holds provider-stored secrets"
-    expression  = "!resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.tfstate.name}/objects/shared/\")"
+# Who can touch Terraform state, set authoritatively: this replaces the bucket's whole IAM policy,
+# so nothing else has access. That matters because GCS adds "convenience" bindings by default, and
+# one of them (projectViewer -> legacyObjectReader) let anyone with project Viewer, tf-plan
+# included, read every state file.
+#   - project owners and editors: full access (the default, kept so you can never lock yourself out)
+#   - tf-apply: read and write every stack's state
+#   - tf-plan: read every stack's state except shared/, which holds provider-stored secrets (the
+#     Turnstile secret); plans run with -lock=false, so it never writes
+data "google_iam_policy" "tfstate" {
+  binding {
+    role    = "roles/storage.legacyBucketOwner"
+    members = ["projectOwner:${var.project_id}", "projectEditor:${var.project_id}"]
+  }
+  binding {
+    role    = "roles/storage.legacyObjectOwner"
+    members = ["projectOwner:${var.project_id}", "projectEditor:${var.project_id}"]
+  }
+  binding {
+    role    = "roles/storage.objectAdmin"
+    members = ["serviceAccount:${google_service_account.apply.email}"]
+  }
+  binding {
+    role    = "roles/storage.objectViewer"
+    members = ["serviceAccount:${google_service_account.plan.email}"]
+    condition {
+      title       = "not-shared-state"
+      description = "Every stack's state except shared/, which holds provider-stored secrets"
+      expression  = "!resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.tfstate.name}/objects/shared/\")"
+    }
   }
 }
 
-resource "google_storage_bucket_iam_member" "apply_state" {
-  bucket = google_storage_bucket.tfstate.name
-  role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.apply.email}"
+resource "google_storage_bucket_iam_policy" "tfstate" {
+  bucket      = google_storage_bucket.tfstate.name
+  policy_data = data.google_iam_policy.tfstate.policy_data
+}
+
+# The two per-member bindings these replaced are handed over, not deleted: deleting them could remove
+# the same bindings from the new policy, depending on the order the API calls run in.
+removed {
+  from = google_storage_bucket_iam_member.plan_state
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = google_storage_bucket_iam_member.apply_state
+  lifecycle {
+    destroy = false
+  }
 }
