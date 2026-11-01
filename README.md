@@ -29,6 +29,10 @@ The reply streams back as server-sent events. Without Docker:
 
 Checks (the same ones CI runs): `uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run lint-imports && uv run pytest`.
 
+Every adapter for a port passes the same contract suite in [`tests/contract/`](tests/contract/).
+Tests that call a real service, like the Gemini adapter's, are marked `integration`. CI skips
+them; run them locally with the key from `.env`: `uv run pytest -m integration`.
+
 - [Design](docs/design.md): online path, identity tiers, delivery and tradeoffs
 - [Roadmap and milestones](docs/roadmap.md)
 - [Architecture decisions](docs/adr/README.md)
