@@ -20,12 +20,11 @@ locals {
   ]
 
   # What the apply account needs for the gcp stack (Cloud Run, Artifact Registry, Firestore,
-  # Secret Manager, BigQuery) instead of roles/editor.
+  # BigQuery) instead of roles/editor. Secret Manager uses the custom role below.
   apply_roles = [
     "roles/run.admin",
     "roles/artifactregistry.admin",
     "roles/datastore.owner",
-    "roles/secretmanager.admin",
     "roles/bigquery.admin",
     "roles/serviceusage.serviceUsageAdmin",
     "roles/iam.serviceAccountAdmin", # create runtime service accounts
@@ -33,13 +32,13 @@ locals {
   ]
 
   # The only project roles the apply account may grant (to runtime service accounts). It can
-  # never grant owner, editor or IAM admin, including to itself.
+  # never grant owner, editor or IAM admin, including to itself. Secret access is not here: it is
+  # granted per secret (secret-level IAM), never project-wide.
   grantable_roles = [
     "roles/logging.logWriter",
     "roles/cloudtrace.agent",
     "roles/monitoring.metricWriter",
     "roles/datastore.user",
-    "roles/secretmanager.secretAccessor",
     "roles/bigquery.dataEditor",
     "roles/bigquery.jobUser",
     "roles/artifactregistry.reader",
@@ -160,6 +159,29 @@ resource "google_project_iam_member" "plan" {
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.plan.email}"
+}
+
+# Secret containers only: create, update, delete and set who may read them, but never read or add
+# secret values. roles/secretmanager.admin includes secretmanager.versions.access, so it is not used.
+resource "google_project_iam_custom_role" "secret_container_admin" {
+  role_id     = "secretContainerAdmin"
+  title       = "Secret container admin (no value access)"
+  description = "Manage Secret Manager secrets and their IAM without reading or writing secret values"
+  permissions = [
+    "secretmanager.secrets.create",
+    "secretmanager.secrets.delete",
+    "secretmanager.secrets.get",
+    "secretmanager.secrets.list",
+    "secretmanager.secrets.update",
+    "secretmanager.secrets.getIamPolicy",
+    "secretmanager.secrets.setIamPolicy",
+  ]
+}
+
+resource "google_project_iam_member" "apply_secret_containers" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.secret_container_admin.id
+  member  = "serviceAccount:${google_service_account.apply.email}"
 }
 
 resource "google_project_iam_member" "apply" {

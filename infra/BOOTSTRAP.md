@@ -203,9 +203,12 @@ gh variable set CLOUDFLARE_ACCOUNT_ID --body <account-id>
     `main` **in the `prod` GitHub environment**, which requires the owner's approval. Pull
     requests get `refs/pull/N/merge` and jobs without the environment get `none`, so neither can
     impersonate it. It holds service-specific roles (Cloud Run, Artifact Registry, Firestore,
-    Secret Manager, BigQuery, Service Usage, service accounts), not `editor`, and its IAM admin
-    role is conditioned to grant only an allowlist of runtime roles: it can never grant itself
-    owner or editor.
+    BigQuery, Service Usage, service accounts), not `editor`, and its IAM admin role is
+    conditioned to grant only an allowlist of runtime roles: it can never grant itself owner or
+    editor. For Secret Manager it has a custom role that manages secret containers and their
+    access but **cannot read or add secret values**; secret access is granted per secret, never
+    project-wide. (Any deployer can still reach app secrets indirectly by deploying code; the
+    `prod` approval, code review and audit logs are the controls for that.)
   - Data Access audit logs on `sts` and `iam` (which covers the `iamcredentials` API) record every
     CI login.
 - **M7:** Azure Entra app registration + federated credentials for this repo
@@ -253,6 +256,17 @@ gh variable set TF_STATE_BUCKET  --body "$(terraform output -raw state_bucket)"
 gh variable set GCP_WIF_PROVIDER --body "$(terraform output -raw workload_identity_provider)"
 gh variable set GCP_PLAN_SA      --body "$(terraform output -raw plan_service_account)"
 gh variable set GCP_APPLY_SA     --body "$(terraform output -raw apply_service_account)"
+```
+
+### Check the permissions
+
+After any change to this stack, run the read-only permission check (Policy Troubleshooter). It
+verifies what each CI account can do, including what it must never do, and exits non-zero on any
+mismatch:
+
+```bash
+gcloud services enable policytroubleshooter.googleapis.com --project "$GCP_PROJECT_ID"   # once
+bash infra/scripts/check-permissions.sh
 ```
 
 ### Provider lock file
