@@ -82,7 +82,7 @@ git config --global core.longpaths true
 
 GCP project IDs are globally unique, so GCP usually appends a numeric suffix to the name. Use the
 IDs, not the display names, in commands and Terraform. This repo is public: record the real IDs in
-your gitignored `.env` (and later as GitHub Actions variables), never in committed files.
+your gitignored `.env` (and later as GitHub Actions secrets), never in committed files.
 
 | Display name | Project ID | Billing |
 | --- | --- | --- |
@@ -295,8 +295,8 @@ Then run `terraform init` and `terraform plan` from the other OS to confirm it s
 - [x] M1: state migrated to the bucket; local state and plan files deleted (2026-10-31)
 - [ ] M1: clean `plan` from the second OS
 - [x] M1: outputs stored as Actions secrets
-- [ ] M7: Azure added to bootstrap; outputs stored as Actions variables
-- [ ] M8: AWS added to bootstrap; outputs stored as Actions variables
+- [ ] M7: Azure added to bootstrap; outputs stored as Actions secrets
+- [ ] M8: AWS added to bootstrap; outputs stored as Actions secrets
 
 ## 6. Hand off to CI and lock down
 
