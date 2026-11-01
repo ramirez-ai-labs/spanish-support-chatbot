@@ -94,8 +94,9 @@ then `event: done`). On a provider failure the client gets a generic `model_unav
 the log records only the error type and status code.
 
 Each request is one trace in Cloud Trace:
-- **`POST /v1/chat`** continues the browser's `traceparent`. It records the method, the route and
-  the outcome (`done`, `error` or `incomplete`).
+- **`POST /v1/chat`** continues the browser's `traceparent`. It records the method, the route, the
+  status code, the tier and the outcome (`done`, `error`, `incomplete` or `rejected`). It starts
+  before the token check, so a refused token is still one trace, with its reason code.
 - **`chat.model`** is its child. It records the model, the message length, the time to first token
   and the number of chunks.
 

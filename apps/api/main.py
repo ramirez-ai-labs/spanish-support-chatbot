@@ -90,22 +90,17 @@ def create_app(
         identity = build_identity()
     chat = ChatService(llm)
 
-    def identify(authorization: str | None) -> Caller | None:
-        """Anonymous without a token; None (reject with 401) for a token that does not verify."""
+    def identify(authorization: str | None) -> Caller:
+        """Anonymous without a token; raises InvalidToken for a token that does not verify."""
         if authorization is None:
             return ANONYMOUS
         scheme, _, token = authorization.partition(" ")
         token = token.strip()
-        try:
-            if scheme.lower() != "bearer" or not token:
-                raise InvalidToken("malformed_header")
-            if identity is None:
-                raise InvalidToken("no_identity_provider")
-            return caller_for(identity.verify(token), now=time.time())
-        except InvalidToken as exc:
-            # The reason code only: never the token or its claims.
-            logger.info("auth_rejected reason=%s", exc.reason)
-            return None
+        if scheme.lower() != "bearer" or not token:
+            raise InvalidToken("malformed_header")
+        if identity is None:
+            raise InvalidToken("no_identity_provider")
+        return caller_for(identity.verify(token), now=time.time())
 
     # FastAPI's built-in telemetry is off. Its request span ends after the response is sent,
     # when serverless CPU is already throttled, so it would miss the flush below, and its logs
@@ -122,31 +117,50 @@ def create_app(
 
     @app.post("/v1/chat")
     def post_chat(request: ChatRequest, http: Request) -> Response:
+        # The request span starts before the token check, so refused requests are traced too. It
+        # continues the browser's trace when it sends `traceparent`, and covers the whole stream,
+        # which is why it is started here rather than by middleware.
+        span = tracer.start_span(
+            "POST /v1/chat",
+            context=propagate.extract(http.headers),
+            kind=SpanKind.SERVER,
+            attributes={
+                "http.request.method": "POST",
+                "http.route": "/v1/chat",
+                "chat.outcome": "incomplete",  # stays so if the client leaves mid-stream
+            },
+        )
+
         # Every call is checked: the tier comes from this request's token, not from earlier ones.
         # The token stops here; only the message text goes on to the chat service and the model.
-        caller = identify(http.headers.get("authorization"))
-        if caller is None:
+        caller, rejected = ANONYMOUS, None
+        with trace.use_span(span, record_exception=False, set_status_on_exception=False):
+            try:
+                caller = identify(http.headers.get("authorization"))
+            except InvalidToken as exc:
+                # The reason code only: never the token or its claims. Logged inside the span,
+                # so Cloud Logging links the line to this request's trace.
+                logger.info("auth_rejected reason=%s", exc.reason)
+                rejected = exc.reason
+        if rejected is not None:
+            span.set_attributes(
+                {
+                    "chat.outcome": "rejected",
+                    "auth.rejected_reason": rejected,
+                    "http.response.status_code": 401,
+                }
+            )
+            span.end()  # a 4xx is the client's error, so the span status stays unset
+            if flush_traces is not None:
+                flush_traces()  # this handler runs in a worker thread, so blocking is fine
             return JSONResponse(
                 {"error": "invalid_token"},
                 status_code=401,
                 headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
             )
-        # Continues the browser's trace when it sends `traceparent`; otherwise starts one.
-        parent = propagate.extract(http.headers)
+        span.set_attributes({"auth.tier": caller.tier.value, "http.response.status_code": 200})
 
         async def events() -> AsyncIterator[str]:
-            # The request span covers the whole stream, so it is started here, not by middleware.
-            span = tracer.start_span(
-                "POST /v1/chat",
-                context=parent,
-                kind=SpanKind.SERVER,
-                attributes={
-                    "http.request.method": "POST",
-                    "http.route": "/v1/chat",
-                    "chat.outcome": "incomplete",  # stays so if the client leaves mid-stream
-                    "auth.tier": caller.tier.value,
-                },
-            )
             try:
                 with trace.use_span(span, record_exception=False, set_status_on_exception=False):
                     async for event in stream_chat(span):
