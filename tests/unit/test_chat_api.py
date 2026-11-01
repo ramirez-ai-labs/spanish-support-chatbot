@@ -27,8 +27,8 @@ def client() -> TestClient:
     return TestClient(create_app(llm=MockLLM()))
 
 
-def test_healthz(client: TestClient) -> None:
-    assert client.get("/healthz").json() == {"status": "ok"}
+def test_health(client: TestClient) -> None:
+    assert client.get("/health").json() == {"status": "ok"}
 
 
 def test_chat_streams_deltas_then_done(client: TestClient) -> None:

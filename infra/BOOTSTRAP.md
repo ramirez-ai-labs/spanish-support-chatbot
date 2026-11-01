@@ -311,8 +311,8 @@ applies until the bootstrap stack is updated.
 | Every PR | `tf-plan`: plan the `gcp` stack (no state lock) | `tf-plan` |
 | Every PR | `tf-apply-gate`: tries to act as `tf-apply` and **must be refused** | (refused) |
 | Every PR | `tf-scan`: Trivy misconfiguration scan; HIGH or CRITICAL fails | none |
-| Merge to `main` touching `infra/terraform/gcp/` | `tf-apply-gate-main`: tries `tf-apply` without `prod`, **must be refused** | (refused) |
-| Same, then **you approve** | `tf-apply`: plan and apply | `tf-apply` |
+| Merge to `main` touching `infra/terraform/gcp/` or the app (`core/`, `adapters/`, `apps/`, `Dockerfile`, dependencies) | `tf-apply-gate-main`: tries `tf-apply` without `prod`, **must be refused** | (refused) |
+| Same, then **you approve** | `tf-apply`: plan and apply, build and push the image, deploy it to Cloud Run, smoke test `/health` and one streamed answer | `tf-apply` |
 
 Actions logs are public on this repo, so project-specific values are Actions **secrets**, which GitHub
 masks everywhere; variables are never masked.

@@ -1,8 +1,9 @@
 name: terraform
 
 # Plans the gcp stack on every PR (read-only account), proves the apply account is unreachable
-# from PRs and from jobs outside the `prod` environment, and applies on main after approval.
-# Bootstrap (infra/terraform/bootstrap) is never applied from CI.
+# from PRs and from jobs outside the `prod` environment, and on main, after one approval, applies
+# the stack and deploys the API image to Cloud Run. Bootstrap (infra/terraform/bootstrap) is never
+# applied from CI.
 #
 # Actions logs are public on this repo. Project-specific values are Actions *secrets* (GitHub
 # masks secrets everywhere; it never masks variables), the derived project number is masked
@@ -15,6 +16,12 @@ on:
     paths:
       - "infra/terraform/gcp/**"
       - ".github/workflows/terraform.yml"
+      - "core/**"
+      - "adapters/**"
+      - "apps/**"
+      - "Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
   workflow_dispatch:
 
 permissions:
@@ -29,6 +36,8 @@ env:
   TF_INPUT: "0"
   TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
   STACK: infra/terraform/gcp
+  REGION: us-east4 # matches var.region in the gcp stack
+  SERVICE: chatbot-api
 
 jobs:
   plan:
@@ -132,7 +141,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: apply-gate-main
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment: prod # requires the owner's approval; the GCP trust requires this environment
     permissions:
       contents: read
@@ -166,6 +175,33 @@ jobs:
         run: |
           terraform -chdir="$STACK" apply -no-color tfplan
           { echo "### gcp stack applied"; grep -E '^(Plan:|No changes)' plan.txt || true; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and push the API image (tagged with the commit)
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          image="$REGION-docker.pkg.dev/$PROJECT_ID/app/api:$GITHUB_SHA"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build -t "$image" .
+          docker push "$image"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+      - name: Deploy to Cloud Run (settings come from Terraform; only the image changes)
+        run: |
+          # Mask the URL first: gcloud prints it, and anyone reading the logs could call the API.
+          url="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
+          echo "::add-mask::$url"
+          echo "URL=$url" >> "$GITHUB_ENV"
+          gcloud run services update "$SERVICE" --region "$REGION" --image "$IMAGE" --quiet
+          echo "Deployed commit $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Smoke test the deployed API
+        run: |
+          url="$URL"
+          curl -sf --retry 5 --retry-all-errors --max-time 10 "$url/health" | grep -q '"ok"'
+          # One real question through Gemini: the stream must carry text and end with "done".
+          reply="$(curl -sN --max-time 90 -H 'Content-Type: application/json' \
+            -d '{"message": "¿Cómo bloqueo mi tarjeta?"}' "$url/v1/chat")"
+          grep -q '^data: {"delta"' <<<"$reply"
+          grep -q '^event: done' <<<"$reply"
+          echo "Smoke test passed: /health ok and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
 
   scan:
     name: tf-scan

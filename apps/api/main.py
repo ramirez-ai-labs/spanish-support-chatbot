@@ -40,8 +40,9 @@ def create_app(llm: LLMProvider | None = None) -> FastAPI:
     chat = ChatService(llm or build_llm())
     app = FastAPI(title="spanish-support-chatbot")
 
-    @app.get("/healthz")
-    def healthz() -> dict[str, str]:
+    # Not /healthz: Cloud Run reserves some paths ending in "z" and may never route them here.
+    @app.get("/health")
+    def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.post("/v1/chat")
