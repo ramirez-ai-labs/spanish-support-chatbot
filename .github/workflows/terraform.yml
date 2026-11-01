@@ -4,8 +4,9 @@ name: terraform
 # from PRs and from jobs outside the `prod` environment, and applies on main after approval.
 # Bootstrap (infra/terraform/bootstrap) is never applied from CI.
 #
-# Actions logs are public on this repo: every project-specific value is masked before anything
-# runs, and job summaries carry only the plan counts.
+# Actions logs are public on this repo. Project-specific values are Actions *secrets* (GitHub
+# masks secrets everywhere; it never masks variables), the derived project number is masked
+# explicitly, and job summaries carry only the plan counts.
 
 on:
   pull_request:
@@ -26,7 +27,7 @@ concurrency:
 env:
   TF_IN_AUTOMATION: "1"
   TF_INPUT: "0"
-  TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+  TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
   STACK: infra/terraform/gcp
 
 jobs:
@@ -39,15 +40,12 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Mask project values
+      - name: Mask the project number (derived from a secret, so not masked automatically)
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
         run: |
-          for v in "${{ vars.GCP_PROJECT_ID }}" "${{ vars.TF_STATE_BUCKET }}" "${{ vars.GCP_PLAN_SA }}" \
-                   "${{ vars.GCP_APPLY_SA }}" "${{ vars.GCP_WIF_PROVIDER }}"; do
-            [ -n "$v" ] && echo "::add-mask::$v"
-          done
-          number="$(echo '${{ vars.GCP_WIF_PROVIDER }}' | cut -d/ -f2)"
-          [ -n "$number" ] && echo "::add-mask::$number"
-          true
+          number="$(echo "$WIF_PROVIDER" | cut -d/ -f2)"
+          if [ -n "$number" ]; then echo "::add-mask::$number"; fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -60,10 +58,10 @@ jobs:
       - name: Log in as the read-only plan account (keyless)
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_PLAN_SA }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_PLAN_SA }}
       - name: Init
-        run: terraform -chdir="$STACK" init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -lockfile=readonly
+        run: terraform -chdir="$STACK" init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -lockfile=readonly
       - name: Plan (no state lock; the plan account cannot write state)
         run: |
           terraform -chdir="$STACK" plan -lock=false -no-color | tee plan.txt
@@ -77,22 +75,19 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - name: Mask project values
+      - name: Mask the project number (derived from a secret, so not masked automatically)
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
         run: |
-          for v in "${{ vars.GCP_PROJECT_ID }}" "${{ vars.TF_STATE_BUCKET }}" "${{ vars.GCP_PLAN_SA }}" \
-                   "${{ vars.GCP_APPLY_SA }}" "${{ vars.GCP_WIF_PROVIDER }}"; do
-            [ -n "$v" ] && echo "::add-mask::$v"
-          done
-          number="$(echo '${{ vars.GCP_WIF_PROVIDER }}' | cut -d/ -f2)"
-          [ -n "$number" ] && echo "::add-mask::$number"
-          true
+          number="$(echo "$WIF_PROVIDER" | cut -d/ -f2)"
+          if [ -n "$number" ]; then echo "::add-mask::$number"; fi
       - name: Try to act as the apply account from a PR (must be refused)
         id: attempt
         continue-on-error: true
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_APPLY_SA }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_APPLY_SA }}
           token_format: access_token
       - name: Fail if the PR got an apply token
         run: |
@@ -110,22 +105,19 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - name: Mask project values
+      - name: Mask the project number (derived from a secret, so not masked automatically)
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
         run: |
-          for v in "${{ vars.GCP_PROJECT_ID }}" "${{ vars.TF_STATE_BUCKET }}" "${{ vars.GCP_PLAN_SA }}" \
-                   "${{ vars.GCP_APPLY_SA }}" "${{ vars.GCP_WIF_PROVIDER }}"; do
-            [ -n "$v" ] && echo "::add-mask::$v"
-          done
-          number="$(echo '${{ vars.GCP_WIF_PROVIDER }}' | cut -d/ -f2)"
-          [ -n "$number" ] && echo "::add-mask::$number"
-          true
+          number="$(echo "$WIF_PROVIDER" | cut -d/ -f2)"
+          if [ -n "$number" ]; then echo "::add-mask::$number"; fi
       - name: Try to act as the apply account on main without the prod environment (must be refused)
         id: attempt
         continue-on-error: true
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_APPLY_SA }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_APPLY_SA }}
           token_format: access_token
       - name: Fail if a job outside prod got an apply token
         run: |
@@ -146,15 +138,12 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Mask project values
+      - name: Mask the project number (derived from a secret, so not masked automatically)
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
         run: |
-          for v in "${{ vars.GCP_PROJECT_ID }}" "${{ vars.TF_STATE_BUCKET }}" "${{ vars.GCP_PLAN_SA }}" \
-                   "${{ vars.GCP_APPLY_SA }}" "${{ vars.GCP_WIF_PROVIDER }}"; do
-            [ -n "$v" ] && echo "::add-mask::$v"
-          done
-          number="$(echo '${{ vars.GCP_WIF_PROVIDER }}' | cut -d/ -f2)"
-          [ -n "$number" ] && echo "::add-mask::$number"
-          true
+          number="$(echo "$WIF_PROVIDER" | cut -d/ -f2)"
+          if [ -n "$number" ]; then echo "::add-mask::$number"; fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -167,10 +156,10 @@ jobs:
       - name: Log in as the apply account (keyless, prod only)
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_APPLY_SA }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_APPLY_SA }}
       - name: Init
-        run: terraform -chdir="$STACK" init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -lockfile=readonly
+        run: terraform -chdir="$STACK" init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -lockfile=readonly
       - name: Plan
         run: terraform -chdir="$STACK" plan -no-color -out=tfplan | tee plan.txt
       - name: Apply
