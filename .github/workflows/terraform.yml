@@ -18,6 +18,7 @@ on:
       - "infra/terraform/gcp/**"
       - "infra/terraform/shared/**"
       - ".github/workflows/terraform.yml"
+      - "ui/**"
       - "core/**"
       - "adapters/**"
       - "apps/**"
@@ -266,6 +267,32 @@ jobs:
             exit 1
           fi
           echo "Smoke test passed: /health ok, forged token and missing bot check refused, and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
+      - name: Deploy the chat page to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # The uploaded copy gets the deployed API's URL and the widget's public site key.
+          site_key="$(terraform -chdir=infra/terraform/shared output -raw turnstile_site_key)"
+          rm -rf ui-dist && cp -r ui ui-dist
+          printf 'window.CHAT_CONFIG = { apiUrl: "%s", turnstileSiteKey: "%s" };\n' "$URL" "$site_key" > ui-dist/config.js
+          sed -i "s#__API_ORIGIN__#$URL#" ui-dist/_headers
+          npx --yes wrangler@4.156.0 pages deploy ui-dist --project-name spanish-support-chatbot \
+            --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=true
+      - name: Smoke test the chat page
+        run: |
+          page="https://spanish-support-chatbot.pages.dev"
+          # The edge can take a few seconds to serve a new deployment.
+          for i in $(seq 1 12); do
+            if curl -sf --max-time 10 "$page/config.js" | grep -qF "$URL"; then break; fi
+            [ "$i" = 12 ] && { echo "::error::The page doesn't serve this deploy's config.js."; exit 1; }
+            sleep 5
+          done
+          headers="$(curl -sI --max-time 10 "$page/")"
+          if ! grep -qi "^content-security-policy: .*connect-src $URL" <<<"$headers"; then
+            echo "::error::The page is missing its Content-Security-Policy."; exit 1
+          fi
+          echo "Chat page deployed: $page (config and security headers checked)" >> "$GITHUB_STEP_SUMMARY"
 
   scan:
     name: tf-scan

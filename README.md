@@ -27,6 +27,15 @@ curl -N http://localhost:8000/v1/chat -H 'Content-Type: application/json' \
 The reply streams back as server-sent events. Without Docker:
 `uv sync && uv run uvicorn --factory apps.api.main:create_app` (load `.env` first).
 
+To use the chat page against the local API, serve [`ui/`](ui/) and open http://localhost:8080:
+
+```bash
+python3 -m http.server 8080 -d ui
+```
+
+Locally, the bot check is off and the page uses Cloudflare's always-pass test key. The deployed page
+is at https://spanish-support-chatbot.pages.dev.
+
 Checks (the same ones CI runs): `uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run lint-imports && uv run pytest`.
 
 Every adapter for a port passes the same contract suite in [`tests/contract/`](tests/contract/).

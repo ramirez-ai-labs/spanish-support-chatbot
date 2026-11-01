@@ -12,6 +12,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
       TRACE_EXPORTER: ${TRACE_EXPORTER:-none}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080} # the chat page served locally from ui/
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s

@@ -88,7 +88,9 @@ The per-cloud mapping of every layer is in the [roadmap](roadmap.md#architecture
 
 ## 4. Online path: one chat request
 
-**Live today (M1):** an anonymous `POST /v1/chat` reaches Cloud Run, the core adds a fixed Spanish
+**Live today (M1):** the chat page at spanish-support-chatbot.pages.dev sends each message with a
+fresh Turnstile token and a `traceparent` it generates, and shows the trace ID under each reply. An
+anonymous `POST /v1/chat` reaches Cloud Run, the core adds a fixed Spanish
 system prompt, and one Gemini call streams the answer back as server-sent events (`data:` deltas,
 then `event: done`). On a provider failure the client gets a generic `model_unavailable` event, and
 the log records only the error type and status code.
