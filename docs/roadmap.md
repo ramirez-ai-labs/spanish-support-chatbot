@@ -130,15 +130,14 @@ Done when: accounts are safe, the repo has its guardrails, and a local chatbot a
 
 **Demo:** start the stack with Docker Compose, ask "¿Cómo bloqueo mi tarjeta?" and get a streamed Spanish answer on your laptop.
 
-- [ ] Day 1: MFA on every account; $1 budget alerts on GCP, Azure and AWS; tag everything `project=showcase`
-- [ ] Day 1: GCP projects `chatbot-demo` (billing on) and `chatbot-gemini` (no billing); Gemini API key; start `infra/BOOTSTRAP.md` for manual steps
+- [x] Day 1: $1 budget alert on the GCP billing account and $1 spend caps on Cloud Run and the Gemini API; tag everything `project=showcase` (MFA moved to M1; Azure and AWS budgets to M7 and M8)
+- [x] Day 1: GCP projects `chatbot-demo` (billing on) and `chatbot-gemini` (no billing); Gemini API key; start `infra/BOOTSTRAP.md` for manual steps
 - [x] Day 1: monorepo `spanish-support-chatbot` in `ramirez-ai-labs` with Apache 2.0 license, `.gitignore`, `.env.example` and the folder skeleton, merged through your first PR
 - [x] Day 2: local chatbot: minimal FastAPI `/v1/chat` streaming from Gemini behind the `LLMProvider` port, run with `docker compose`
 - [x] Day 2: one-page test UI (or curl) that shows the streamed answer
 - [x] Day 3: SDLC basics: branch protection on `main`, PR template, conventional commits, GitHub milestones M0 to M9
 - [x] Day 3: basic CI: Ruff, mypy, pytest, `import-linter` as required checks; secret scanning and Dependabot on
 - [x] Day 3: first ADRs: monorepo, shared Neon, Gemini on every cloud, serverless containers instead of Kubernetes, "something runs every day"
-- [ ] Anytime: AWS IAM user for daily work, stop using root; earn the $100 credit activities, deleting the EC2 and database right after
 
 ### M1 · Design doc and walking skeleton on GCP (Nov 9–15)
 
@@ -146,7 +145,8 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 
 **Demo:** ask in Spanish and get a streamed answer; sign in and show the token check, the trace and the token count for that call.
 
-- [ ] Bootstrap Terraform run locally, GCP only: GCS state bucket and GitHub OIDC trust for GCP
+- [x] Bootstrap Terraform run locally, GCP only: GCS state bucket and GitHub OIDC trust for GCP
+- [ ] MFA on GitHub and Google first (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare before the `shared` stack uses them. Azure and AWS get MFA in M7 and M8
 - [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile, Neon project in AWS US East 1 with pgvector, `dev` branch and roles (`indexer`, `app_gcp`, `usage_writer`)
 - [ ] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Firestore, Secret Manager, BigQuery dataset, budget
 - [ ] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
@@ -246,6 +246,7 @@ Done when: the same UI talks to an Azure backend with the same answers, auth tie
 
 **Demo:** the same UI and answers, now served from Azure.
 
+- [ ] First: MFA on the Azure account and a $1 budget alert; Azure CLI upgraded
 - [ ] Add Azure to the Terraform bootstrap: GitHub federated credentials; add the `app_azure` Neon role
 - [ ] `azure` Terraform stack: resource group, Container Apps environment, Cosmos DB, Application Insights, budget
 - [ ] First session: deploy the existing image to Container Apps with GCP-free adapters stubbed, so something runs on Azure on day one
@@ -264,6 +265,8 @@ Done when: the same UI talks to an AWS backend, and one dashboard compares cost 
 
 **Demo:** the same UI on AWS, plus one dashboard comparing cost and latency across all three clouds.
 
+- [ ] First: MFA on the root account; IAM user for daily work with MFA, stop using root; $1 budget alert; AWS CLI upgraded
+- [ ] Optional: earn the $100 credit activities, deleting any EC2 instance or database right after
 - [ ] Add AWS to the Terraform bootstrap: GitHub IAM OIDC role; add the `app_aws` Neon role
 - [ ] `aws` Terraform stack: ECR, Lambda, DynamoDB, Cognito, SSM parameters, budget
 - [ ] First session: run the existing image on Lambda with stubbed AWS adapters, so something runs on AWS on day one
