@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored) and fill in. The repo is public: real IDs never get committed.
+#   gh api repos/ramirez-ai-labs/spanish-support-chatbot --jq '.id, .owner.id'
+
+project_id                 = "<demo-project-id>"
+github_repository_id       = "<numeric repository id>"
+github_repository_owner_id = "<numeric owner id>"
