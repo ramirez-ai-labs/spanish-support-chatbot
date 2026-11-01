@@ -93,6 +93,22 @@ system prompt, and one Gemini call streams the answer back as server-sent events
 then `event: done`). On a provider failure the client gets a generic `model_unavailable` event, and
 the log records only the error type and status code.
 
+Each request is one trace in Cloud Trace:
+- **`POST /v1/chat`** continues the browser's `traceparent`. It records the method, the route and
+  the outcome (`done`, `error` or `incomplete`).
+- **`chat.model`** is its child. It records the model, the message length, the time to first token
+  and the number of chunks.
+
+Spans carry sizes and timings, never message text, and errors only by type. Log lines are JSON
+with the trace ID, so Cloud Logging shows them under their trace.
+
+Two details make every request appear:
+- Cloud Run's front end marks most requests "not sampled", so that flag is not trusted.
+- Spans are flushed before the request ends, while Cloud Run still allocates CPU.
+
+FastAPI's built-in telemetry is off for both reasons: its span ends too late, and its logs can
+include request text.
+
 **Designed (M1 to M3):** each step below is one OpenTelemetry span, so time to first token breaks
 down by stage.
 

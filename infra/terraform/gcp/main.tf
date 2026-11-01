@@ -39,6 +39,11 @@ resource "google_artifact_registry_repository" "app" {
 
 # --- Gemini key and the app's runtime identity -----------------------------------------------------
 
+resource "google_project_service" "cloudtrace" {
+  service            = "cloudtrace.googleapis.com"
+  disable_on_destroy = false
+}
+
 resource "google_project_service" "secretmanager" {
   service            = "secretmanager.googleapis.com"
   disable_on_destroy = false
@@ -76,9 +81,12 @@ resource "google_secret_manager_secret_iam_member" "run_gemini_api_key" {
 }
 
 # Project roles for the runtime account. Each must be in the bootstrap stack's grantable_roles, or
-# the apply is refused; tracing and metrics are added with the slices that use them.
+# the apply is refused; metrics are added with the slice that uses them.
 resource "google_project_iam_member" "run" {
-  for_each = toset(["roles/logging.logWriter"])
+  for_each = toset([
+    "roles/logging.logWriter",
+    "roles/cloudtrace.agent", # write spans; always free up to 2.5M spans a month
+  ])
 
   project = var.project_id
   role    = each.value
@@ -135,6 +143,18 @@ resource "google_cloud_run_v2_service" "api" {
         value = "gemini-3.5-flash-lite"
       }
       env {
+        name  = "TRACE_EXPORTER"
+        value = "gcp"
+      }
+      env {
+        name  = "TRACE_SAMPLE_RATIO"
+        value = "1.0" # every request at demo traffic; 2 spans each stays far inside the free tier
+      }
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+      env {
         name = "GEMINI_API_KEY"
         value_source {
           secret_key_ref {
@@ -156,6 +176,7 @@ resource "google_cloud_run_v2_service" "api" {
 
   depends_on = [
     google_project_service.run,
+    google_project_service.cloudtrace,
     google_secret_manager_secret_iam_member.run_gemini_api_key,
   ]
 }

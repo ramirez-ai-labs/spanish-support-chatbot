@@ -16,7 +16,7 @@ class GeminiLLM:
         if not api_key:
             raise ValueError("GEMINI_API_KEY is empty; set it in .env (see .env.example)")
         self._client = genai.Client(api_key=api_key)
-        self._model = model
+        self.model = model
 
     async def stream(self, system: str, user_message: str) -> AsyncIterator[str]:
         config = types.GenerateContentConfig(
@@ -26,7 +26,7 @@ class GeminiLLM:
             thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
         )
         chunks = await self._client.aio.models.generate_content_stream(
-            model=self._model, contents=user_message, config=config
+            model=self.model, contents=user_message, config=config
         )
         async for chunk in chunks:
             if chunk.text:
