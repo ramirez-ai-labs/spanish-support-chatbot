@@ -5,6 +5,7 @@ The factory keeps imports side-effect free, so tests never need a Gemini key.
 """
 
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 
@@ -14,6 +15,8 @@ from pydantic import BaseModel, Field
 
 from core.chat import MAX_MESSAGE_CHARS, ChatService
 from core.ports import LLMProvider
+
+logger = logging.getLogger(__name__)
 
 
 class ChatRequest(BaseModel):
@@ -51,8 +54,15 @@ def create_app(llm: LLMProvider | None = None) -> FastAPI:
             try:
                 async for delta in chat.reply(request.message):
                     yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
-            except Exception:
-                # Never echo provider errors or message text to the client or logs.
+            except Exception as exc:
+                # Never echo provider errors or message text to the client or logs: provider
+                # messages can quote the request. Log only the error type and HTTP status code.
+                code = getattr(exc, "code", None)
+                logger.warning(
+                    "llm_error type=%s code=%s",
+                    type(exc).__name__,
+                    code if isinstance(code, int) else "none",
+                )
                 yield 'event: error\ndata: {"error": "model_unavailable"}\n\n'
                 return
             yield "event: done\ndata: {}\n\n"

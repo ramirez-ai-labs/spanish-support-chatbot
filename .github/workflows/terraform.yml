@@ -195,12 +195,21 @@ jobs:
       - name: Smoke test the deployed API
         run: |
           url="$URL"
-          curl -sf --retry 5 --retry-all-errors --max-time 10 "$url/health" | grep -q '"ok"'
+          if ! curl -sf --retry 5 --retry-all-errors --max-time 10 "$url/health" | grep -q '"ok"'; then
+            echo "::error::/health did not return ok: the container did not start or is not serving."
+            exit 1
+          fi
           # One real question through Gemini: the stream must carry text and end with "done".
           reply="$(curl -sN --max-time 90 -H 'Content-Type: application/json' \
             -d '{"message": "¿Cómo bloqueo mi tarjeta?"}' "$url/v1/chat")"
-          grep -q '^data: {"delta"' <<<"$reply"
-          grep -q '^event: done' <<<"$reply"
+          if grep -q '^event: error' <<<"$reply"; then
+            echo "::error::Chat returned model_unavailable: the Gemini call failed. The llm_error line in the Cloud Run logs has the error type and status code (401 = bad key)."
+            exit 1
+          fi
+          if ! grep -q '^data: {"delta"' <<<"$reply" || ! grep -q '^event: done' <<<"$reply"; then
+            echo "::error::Chat stream was incomplete: no text, or no final done event (timeout or cut connection)."
+            exit 1
+          fi
           echo "Smoke test passed: /health ok and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
 
   scan:

@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import AsyncIterator
 
 import pytest
@@ -64,6 +65,24 @@ def test_provider_error_becomes_generic_error_event() -> None:
 
     assert parse_sse(body) == [("error", {"error": "model_unavailable"})]
     assert secret not in body
+
+
+def test_provider_error_logs_type_and_code_only(caplog: pytest.LogCaptureFixture) -> None:
+    secret = "API key not valid: hola"
+
+    class ProviderError(Exception):
+        code = 401
+
+    class FailingLLM:
+        async def stream(self, system: str, user_message: str) -> AsyncIterator[str]:
+            raise ProviderError(secret)
+            yield ""
+
+    with caplog.at_level(logging.WARNING, logger="apps.api.main"):
+        TestClient(create_app(llm=FailingLLM())).post("/v1/chat", json={"message": "hola"})
+
+    assert "llm_error type=ProviderError code=401" in caplog.text
+    assert secret not in caplog.text
 
 
 def test_system_prompt_is_passed_to_provider() -> None:

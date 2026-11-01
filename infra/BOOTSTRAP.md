@@ -346,7 +346,8 @@ gcloud secrets versions list gemini-api-key --project $env:GCP_PROJECT_ID   # on
 To rotate, add a new version the same way and disable the old one
 (`gcloud secrets versions disable <n>`). Only the `chatbot-run` service account can read it.
 
-- [ ] M1: Gemini key added to Secret Manager
+- [x] M1: Gemini key added to Secret Manager (2026-10-31). Check the length before adding: a
+  truncated paste stores a key Gemini rejects with 401
 
 - [ ] M1: `shared` and `gcp` stacks plan on PR and apply on merge
 - [ ] M7: `azure` stack plans on PR and applies on merge
