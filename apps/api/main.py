@@ -12,14 +12,16 @@ import time
 from collections.abc import AsyncIterator, Callable
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
 from pydantic import BaseModel, Field
 
+from core.bot_check import BotCheckFailed
 from core.chat import MAX_MESSAGE_CHARS, ChatService
 from core.identity import ANONYMOUS, Caller, InvalidToken, caller_for
-from core.ports import IdentityProvider, LLMProvider, UsageSink
+from core.ports import BotCheck, DeployProbe, IdentityProvider, LLMProvider, UsageSink
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -43,6 +45,36 @@ def build_llm() -> LLMProvider:
             model=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
         )
     raise ValueError(f"Unknown LLM_PROVIDER: {provider!r} (expected 'gemini' or 'mock')")
+
+
+def allowed_origins() -> list[str]:
+    """Browser origins allowed to call the API (the chat page), from ALLOWED_ORIGINS."""
+    return [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+
+
+def build_bot_check() -> BotCheck | None:
+    """Pick the bot check from BOT_CHECK; none by default (tests, local runs)."""
+    check = os.environ.get("BOT_CHECK", "none")
+    if check == "none":
+        return None
+    if check == "turnstile":
+        from urllib.parse import urlsplit
+
+        from adapters.shared.turnstile import TurnstileBotCheck
+
+        hostnames = {urlsplit(origin).hostname or "" for origin in allowed_origins()}
+        return TurnstileBotCheck(os.environ["TURNSTILE_SECRET"], hostnames - {""})
+    raise ValueError(f"Unknown BOT_CHECK: {check!r} (expected 'turnstile' or 'none')")
+
+
+def build_deploy_probe() -> DeployProbe | None:
+    """The deploy job's signed identity, from DEPLOY_PROBE_EMAIL; none when it isn't set."""
+    email = os.environ.get("DEPLOY_PROBE_EMAIL")
+    if not email:
+        return None
+    from adapters.gcp.deploy_probe import GoogleDeployProbe
+
+    return GoogleDeployProbe(email)
 
 
 def build_usage_sink() -> UsageSink | None:
@@ -96,12 +128,18 @@ def create_app(
     flush_traces: Callable[[], None] | None = None,
     identity: IdentityProvider | None = None,
     usage: UsageSink | None = None,
+    bot_check: BotCheck | None = None,
+    deploy_probe: DeployProbe | None = None,
+    origins: list[str] | None = None,
 ) -> FastAPI:
     if llm is None:
         llm = build_llm()
         flush_traces = build_tracing()
         identity = build_identity()
         usage = build_usage_sink()
+        bot_check = build_bot_check()
+        deploy_probe = build_deploy_probe()
+        origins = allowed_origins()
     chat = ChatService(llm, usage=usage, cloud=os.environ.get("CLOUD", "local"))
 
     def identify(authorization: str | None) -> Caller:
@@ -116,6 +154,15 @@ def create_app(
             raise InvalidToken("no_identity_provider")
         return caller_for(identity.verify(token), now=time.time())
 
+    def is_deploy_probe(header: str | None) -> bool:
+        """True for the deploy job's signed identity; raises InvalidToken for a bad one."""
+        if header is None:
+            return False
+        if deploy_probe is None:
+            raise InvalidToken("no_deploy_probe")
+        deploy_probe.verify(header)
+        return True
+
     # FastAPI's built-in telemetry is off. Its request span ends after the response is sent,
     # when serverless CPU is already throttled, so it would miss the flush below, and its logs
     # option records validation errors, which can include the message text.
@@ -123,6 +170,17 @@ def create_app(
         title="spanish-support-chatbot",
         telemetry={"tracing": False, "metrics": False, "logs": False},
     )
+
+    # Only the chat page's origin may call the API from a browser. The headers are the ones the
+    # page sends: its user's token, its trace context and its bot-check token.
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_methods=["POST"],
+            allow_headers=["content-type", "authorization", "traceparent", "cf-turnstile-response"],
+            max_age=600,
+        )
 
     # Not /healthz: Cloud Run reserves some paths ending in "z" and may never route them here.
     @app.get("/health")
@@ -145,34 +203,51 @@ def create_app(
             },
         )
 
-        # Every call is checked: the tier comes from this request's token, not from earlier ones.
-        # The token stops here; only the message text goes on to the chat service and the model.
-        caller, rejected = ANONYMOUS, None
+        # Every call is checked: the tier comes from this request's token, not from earlier ones,
+        # and then the bot check (unless it's the deploy job's own probe). Tokens stop here; only
+        # the message text goes on to the chat service and the model.
+        caller, probe = ANONYMOUS, False
+        rejection: tuple[str, int] | None = None
         with trace.use_span(span, record_exception=False, set_status_on_exception=False):
             try:
                 caller = identify(http.headers.get("authorization"))
+                probe = is_deploy_probe(http.headers.get("x-deploy-probe"))
+                if bot_check is not None and not probe:
+                    bot_check.verify(http.headers.get("cf-turnstile-response"))
             except InvalidToken as exc:
-                # The reason code only: never the token or its claims. Logged inside the span,
+                rejection = (exc.reason, 401)
+            except BotCheckFailed as exc:
+                rejection = (exc.reason, 503 if exc.reason == "turnstile_unavailable" else 403)
+            if rejection is not None:
+                # The reason code only: never a token or its claims. Logged inside the span,
                 # so Cloud Logging links the line to this request's trace.
-                logger.info("auth_rejected reason=%s", exc.reason)
-                rejected = exc.reason
-        if rejected is not None:
+                logger.info("request_rejected reason=%s", rejection[0])
+        if rejection is not None:
+            reason, status = rejection
             span.set_attributes(
                 {
                     "chat.outcome": "rejected",
-                    "auth.rejected_reason": rejected,
-                    "http.response.status_code": 401,
+                    "auth.rejected_reason": reason,
+                    "http.response.status_code": status,
                 }
             )
             span.end()  # a 4xx is the client's error, so the span status stays unset
             if flush_traces is not None:
                 flush_traces()  # this handler runs in a worker thread, so blocking is fine
-            return JSONResponse(
-                {"error": "invalid_token"},
-                status_code=401,
-                headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
-            )
-        span.set_attributes({"auth.tier": caller.tier.value, "http.response.status_code": 200})
+            if status == 401:
+                return JSONResponse(
+                    {"error": "invalid_token"},
+                    status_code=401,
+                    headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
+                )
+            return JSONResponse({"error": reason}, status_code=status)
+        span.set_attributes(
+            {
+                "auth.tier": caller.tier.value,
+                "auth.deploy_probe": probe,
+                "http.response.status_code": 200,
+            }
+        )
 
         async def events() -> AsyncIterator[str]:
             try:

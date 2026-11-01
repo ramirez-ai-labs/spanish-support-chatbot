@@ -110,7 +110,7 @@ def test_rejections_log_the_reason_never_the_token(caplog: pytest.LogCaptureFixt
     expired = token(exp=int(time.time()) - 120)
     with caplog.at_level("INFO", logger="apps.api.main"):
         post({"Authorization": f"Bearer {expired}"})
-    assert "auth_rejected reason=expired" in caplog.text
+    assert "request_rejected reason=expired" in caplog.text
     assert expired not in caplog.text
 
 

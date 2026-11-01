@@ -233,6 +233,29 @@ resource "google_cloud_run_v2_service" "api" {
         value = "neon"
       }
       env {
+        name  = "ALLOWED_ORIGINS"
+        value = var.ui_origin
+      }
+      env {
+        name  = "BOT_CHECK"
+        value = "turnstile"
+      }
+      env {
+        name = "TURNSTILE_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.turnstile_secret.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
+        # The deploy job's signed identity (tf-apply), which may skip the bot check so the smoke
+        # test can ask the model a real question. It still gets the anonymous tier.
+        name  = "DEPLOY_PROBE_EMAIL"
+        value = "tf-apply@${var.project_id}.iam.gserviceaccount.com"
+      }
+      env {
         name = "NEON_USAGE_URL" # usage_writer: INSERT on llm_usage only
         value_source {
           secret_key_ref {
@@ -266,6 +289,7 @@ resource "google_cloud_run_v2_service" "api" {
     google_project_service.cloudtrace,
     google_secret_manager_secret_iam_member.run_gemini_api_key,
     google_secret_manager_secret_iam_member.run_neon_usage_writer_url,
+    google_secret_manager_secret_iam_member.run_turnstile_secret,
   ]
 }
 

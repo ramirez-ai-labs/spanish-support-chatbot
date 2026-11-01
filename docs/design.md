@@ -173,6 +173,16 @@ port.
   signed in within the last 5 minutes. Tools that use the tiers arrive in M3.
 - **The JWT checker is generic** (`adapters/shared/jwt_identity.py`). Firebase supplies only its
   key URL, issuer and audience; Entra and Cognito will do the same in M7 and M8.
+- **A bot check sits in front of the model.** Each chat message carries a fresh, single-use
+  Turnstile token from the page, which the API verifies with Cloudflare:
+  - it must have been solved on the chat page's own host
+  - missing or invalid gets 403; if Cloudflare is unreachable the message is refused with 503,
+    failing closed
+  - only the chat page's origin may call the API from a browser (CORS)
+- **The deploy job is the one exception.** It sends a Google-signed ID token for `tf-apply` in
+  `X-Deploy-Probe`, with a fixed audience. Only an approved `prod` job can mint it, and no shared
+  secret exists. That lets the post-deploy smoke test still ask a real question. It stays at the
+  anonymous tier, and a bad probe is a 401, not a bypass.
 - **The tool rule is live in the `ToolProvider` port** (`core/tools.py`), ahead of the first
   real tool in M3. A tool's kind sets its tier, so it can't be configured per tool:
   - read-only tools need signed-in
@@ -288,6 +298,7 @@ while the bill is $0.
 | Endpoint exposure | Public, tiers enforced in the app | Private behind IAP or an API gateway | Anonymous visitors are a real tier; abuse is limited by Turnstile (M1) and rate limits (M5) |
 | Deploy gate | One approval covers apply and deploy | Separate approvals | One click per merge; the gate is still enforced by Google, not just GitHub |
 | Neon setup | Checked-in script, roles in SQL migrations ([ADR 0006](adr/0006-neon-outside-terraform.md)) | Terraform provider | Its provider saves live passwords in state, which PR plans can read, and its roles get `neon_superuser` |
+| Smoke test vs. bot check | The deploy job's own signed identity skips Turnstile | A bypass secret, or no model check after deploy | No shared secret to leak; only an approved prod job can mint the token, and the real model path stays tested on every deploy |
 | Hot path | One model call, no router | Router model plus a specialist | Lower latency and cost; tool use handles the cases a router would |
 
 ## 10. Risks and open questions

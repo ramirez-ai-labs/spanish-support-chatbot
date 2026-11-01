@@ -218,8 +218,21 @@ jobs:
           echo "URL=$url" >> "$GITHUB_ENV"
           gcloud run services update "$SERVICE" --region "$REGION" --image "$IMAGE" --quiet
           echo "Deployed commit $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Mint the deploy job's signed identity for the smoke test (tf-apply, fixed audience)
+        id: probe
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_APPLY_SA }}
+          token_format: id_token
+          id_token_audience: spanish-support-chatbot-deploy-probe # = PROBE_AUDIENCE in adapters/gcp/deploy_probe.py
+          id_token_include_email: true
+          create_credentials_file: false
       - name: Smoke test the deployed API
+        env:
+          PROBE: ${{ steps.probe.outputs.id_token }}
         run: |
+          echo "::add-mask::$PROBE"
           url="$URL"
           if ! curl -sf --retry 5 --retry-all-errors --max-time 10 "$url/health" | grep -q '"ok"'; then
             echo "::error::/health did not return ok: the container did not start or is not serving."
@@ -233,8 +246,16 @@ jobs:
             echo "::error::A forged token was not refused with 401 invalid_token: the token check is not live."
             exit 1
           fi
-          # One real question through Gemini: the stream must carry text and end with "done".
-          reply="$(curl -sN --max-time 90 -H 'Content-Type: application/json' \
+          # Without a Turnstile token (and not the probe), a message must be refused.
+          botcheck="$(curl -s --max-time 10 -w ' %{http_code}' -H 'Content-Type: application/json' \
+            -d '{"message": "hola"}' "$url/v1/chat")"
+          if [ "$botcheck" != '{"error":"turnstile_required"} 403' ]; then
+            echo "::error::A message without a Turnstile token was not refused with 403: the bot check is not live."
+            exit 1
+          fi
+          # One real question through Gemini, as the deploy probe (which skips the bot check): the
+          # stream must carry text and end with "done".
+          reply="$(curl -sN --max-time 90 -H 'Content-Type: application/json' -H "X-Deploy-Probe: $PROBE" \
             -d '{"message": "¿Cómo bloqueo mi tarjeta?"}' "$url/v1/chat")"
           if grep -q '^event: error' <<<"$reply"; then
             echo "::error::Chat returned model_unavailable: the Gemini call failed. The llm_error line in the Cloud Run logs has the error type and status code (401 = bad key)."
@@ -244,7 +265,7 @@ jobs:
             echo "::error::Chat stream was incomplete: no text, or no final done event (timeout or cut connection)."
             exit 1
           fi
-          echo "Smoke test passed: /health ok, forged token refused, and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
+          echo "Smoke test passed: /health ok, forged token and missing bot check refused, and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
 
   scan:
     name: tf-scan
