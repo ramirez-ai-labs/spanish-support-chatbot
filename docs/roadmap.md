@@ -150,7 +150,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 - [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile, Neon project in AWS US East 1 with pgvector, `dev` branch and roles (`indexer`, `app_gcp`, `usage_writer`)
 - [ ] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Firestore, Secret Manager, BigQuery dataset, budget
 - [ ] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
-- [ ] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
+- [x] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
 - [ ] Slim multi-stage Docker image with e5 and Presidio models baked in; Trivy and CodeQL scans in CI
 - [ ] Firebase Auth email sign-in; JWT validation behind the `IdentityProvider` adapter; no token = anonymous tier
 - [ ] `ToolProvider` port in `core/` with an in-process adapter, so tools can later move behind MCP without changing the agent
