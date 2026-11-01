@@ -17,6 +17,14 @@ class Tier(StrEnum):
     STEP_UP = "step_up"  # plus action tools
 
 
+_RANK = {Tier.ANONYMOUS: 0, Tier.SIGNED_IN: 1, Tier.STEP_UP: 2}
+
+
+def tier_allows(held: Tier, required: Tier) -> bool:
+    """Tiers are ordered: step-up can do everything signed-in can, and more."""
+    return _RANK[held] >= _RANK[required]
+
+
 class InvalidToken(Exception):
     """The token failed verification. `reason` is a short code, safe to log; never the token."""
 

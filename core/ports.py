@@ -1,9 +1,10 @@
 """Ports the core depends on. Adapters in `adapters/` implement them per provider or cloud."""
 
-from collections.abc import AsyncIterator
-from typing import Protocol
+from collections.abc import AsyncIterator, Mapping, Sequence
+from typing import Any, Protocol
 
-from core.identity import VerifiedToken
+from core.identity import Caller, VerifiedToken
+from core.tools import ToolResult, ToolSpec
 
 
 class LLMProvider(Protocol):
@@ -26,3 +27,21 @@ class IdentityProvider(Protocol):
     """
 
     def verify(self, token: str) -> VerifiedToken: ...
+
+
+class ToolProvider(Protocol):
+    """The tools available to a caller, in-process for customers and over MCP for staff (M9).
+
+    Both methods take the verified caller. Every implementation enforces `core.tools.check_allowed`,
+    and the contract suite proves it, so moving a tool behind MCP doesn't change who may call it.
+    """
+
+    def list_tools(self, caller: Caller) -> Sequence[ToolSpec]:
+        """Only the tools this caller may use; the model is never shown the others."""
+        ...
+
+    async def call(
+        self, caller: Caller, name: str, arguments: Mapping[str, Any], confirmed: bool = False
+    ) -> ToolResult:
+        """Runs a tool. Raises `UnknownTool`, or `ToolDenied` with a reason code."""
+        ...

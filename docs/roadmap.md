@@ -152,7 +152,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 - [x] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
 - [ ] Slim multi-stage Docker image with e5 and Presidio models baked in; Trivy and CodeQL scans in CI
 - [ ] Firebase Auth email sign-in; JWT validation behind the `IdentityProvider` adapter; no token = anonymous tier
-- [ ] `ToolProvider` port in `core/` with an in-process adapter, so tools can later move behind MCP without changing the agent
+- [x] `ToolProvider` port in `core/` with an in-process adapter, so tools can later move behind MCP without changing the agent
 - [ ] Contract test suite started: every adapter for a port must pass the same tests
 - [ ] Chat UI on Cloudflare Pages: streaming, `traceparent` header, Turnstile, Web Analytics
 - [x] OpenTelemetry in the API, exporting to Cloud Trace and Cloud Logging

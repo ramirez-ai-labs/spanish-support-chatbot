@@ -162,6 +162,14 @@ port.
   signed in within the last 5 minutes. Tools that use the tiers arrive in M3.
 - **The JWT checker is generic** (`adapters/shared/jwt_identity.py`). Firebase supplies only its
   key URL, issuer and audience; Entra and Cognito will do the same in M7 and M8.
+- **The tool rule is live in the `ToolProvider` port** (`core/tools.py`), ahead of the first
+  real tool in M3. A tool's kind sets its tier, so it can't be configured per tool:
+  - read-only tools need signed-in
+  - action tools need step-up **and** a confirmation
+  - anonymous callers see none
+
+  Tools get `caller.sub` for ownership checks, never a token. The in-process adapter serves
+  customers, and the MCP adapter (M9) has to pass the same contract suite.
 - **Signing in** (Firebase email sign-in) is turned on with the chat UI
   ([#22](https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/22)), the first thing
   that signs anyone in.
