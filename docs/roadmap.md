@@ -148,17 +148,18 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 - [x] Bootstrap Terraform run locally, GCP only: GCS state bucket and GitHub OIDC trust for GCP
 - [ ] MFA on GitHub and Google first (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare before the `shared` stack uses them. Azure and AWS get MFA in M7 and M8
 - [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile, Neon project in AWS US East 1 with pgvector, `dev` branch and roles (`indexer`, `app_gcp`, `usage_writer`)
-- [ ] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Firestore, Secret Manager, BigQuery dataset, budget
-- [ ] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
+- [ ] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Firestore, Secret Manager, BigQuery dataset, budget (Cloud Run, Artifact Registry and Secret Manager done; BigQuery comes with usage events, Firestore with sessions; the budget stays manual)
+- [x] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
 - [x] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
 - [ ] Slim multi-stage Docker image with e5 and Presidio models baked in; Trivy and CodeQL scans in CI
 - [ ] Firebase Auth email sign-in; JWT validation behind the `IdentityProvider` adapter; no token = anonymous tier
 - [ ] `ToolProvider` port in `core/` with an in-process adapter, so tools can later move behind MCP without changing the agent
 - [ ] Contract test suite started: every adapter for a port must pass the same tests
 - [ ] Chat UI on Cloudflare Pages: streaming, `traceparent` header, Turnstile, Web Analytics
-- [ ] OpenTelemetry in the API, exporting to Cloud Trace and Cloud Logging
+- [x] OpenTelemetry in the API, exporting to Cloud Trace and Cloud Logging
 - [ ] `migrations/` for `llm_usage` and `model_prices`; usage event in `LLMProvider` with tokens, model, `purpose`, `prompt_parts`, latency; async write
-- [ ] CI deploy via Workload Identity Federation, post-deploy smoke test, tag `v0.1.0`
+- [x] CI deploy via Workload Identity Federation, post-deploy smoke test
+- [ ] Tag `v0.1.0`
 
 ### M2 · RAG and indexing pipeline (Nov 16–29)
 
