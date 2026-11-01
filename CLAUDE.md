@@ -90,7 +90,8 @@ evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,d
 - **This repo is public.** Never commit or post (files, commit messages, PRs, issues) real account or
   project IDs, billing details, emails, local paths, machine details, or names of unrelated projects.
   Use placeholders like `<demo-project-id>`; real values live in `.env`, gitignored `*.tfvars` or
-  GitHub Actions variables.
+  GitHub Actions **secrets**. Never Actions variables: Actions logs are public and GitHub masks only
+  secrets.
 - **Never create secret values through Terraform**: state is readable by the plan account and
   stored in a bucket. Terraform creates the secret container; the value is added by hand or by CI.
 - Infra changes from CI apply only in the approval-gated `prod` GitHub environment on `main`;

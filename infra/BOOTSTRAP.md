@@ -164,7 +164,7 @@ store them as environment variables locally and as GitHub Actions secrets for CI
 | --- | --- | --- |
 | `NEON_API_KEY` | Neon console → Account → API keys | This project only, if org-scoped keys are available |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → API tokens | Account-scoped: Pages edit, Turnstile edit. Not the global API key |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard | Not secret; store as an Actions variable |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard | Not secret, but stored as an Actions secret so it is masked in public logs |
 
 For local runs, copy [`.env.example`](../.env.example) to `.env` (gitignored), fill it in, and load
 it into the current shell:
@@ -185,7 +185,7 @@ Store the same values for CI (prompts for the secret, so it never lands in shell
 ```bash
 gh secret set NEON_API_KEY
 gh secret set CLOUDFLARE_API_TOKEN
-gh variable set CLOUDFLARE_ACCOUNT_ID --body <account-id>
+gh secret set CLOUDFLARE_ACCOUNT_ID
 ```
 
 - [ ] Neon API key created and stored
@@ -249,14 +249,15 @@ From then on, every `init` passes `-backend-config="bucket=$TF_STATE_BUCKET"` (a
 
 ### Hand the outputs to CI
 
-They grant nothing on their own, so they are Actions **variables**, not secrets. They still stay
-out of committed files.
+They grant nothing on their own, but this repo's Actions logs are public and GitHub masks only
+**secrets**, never variables. So they are stored as secrets.
 
 ```bash
-gh variable set TF_STATE_BUCKET  --body "$(terraform output -raw state_bucket)"
-gh variable set GCP_WIF_PROVIDER --body "$(terraform output -raw workload_identity_provider)"
-gh variable set GCP_PLAN_SA      --body "$(terraform output -raw plan_service_account)"
-gh variable set GCP_APPLY_SA     --body "$(terraform output -raw apply_service_account)"
+terraform output -raw state_bucket               | gh secret set TF_STATE_BUCKET
+terraform output -raw workload_identity_provider | gh secret set GCP_WIF_PROVIDER
+terraform output -raw plan_service_account       | gh secret set GCP_PLAN_SA
+terraform output -raw apply_service_account      | gh secret set GCP_APPLY_SA
+printf '%s' "$GCP_PROJECT_ID"                 | gh secret set GCP_PROJECT_ID
 ```
 
 ### Check the permissions
@@ -286,7 +287,7 @@ Then run `terraform init` and `terraform plan` from the other OS to confirm it s
 - [x] M1: GCP bootstrap applied (2026-10-31)
 - [x] M1: state migrated to the bucket; local state and plan files deleted (2026-10-31)
 - [ ] M1: clean `plan` from the second OS
-- [x] M1: outputs stored as Actions variables (2026-10-31)
+- [x] M1: outputs stored as Actions secrets
 - [ ] M7: Azure added to bootstrap; outputs stored as Actions variables
 - [ ] M8: AWS added to bootstrap; outputs stored as Actions variables
 
@@ -295,6 +296,19 @@ Then run `terraform init` and `terraform plan` from the other OS to confirm it s
 The `prod` GitHub environment (Settings → Environments) requires the owner's approval and allows
 only protected branches. Its name is part of the apply account's trust, so renaming it breaks
 applies until the bootstrap stack is updated.
+
+**How infrastructure changes flow** ([`.github/workflows/terraform.yml`](../.github/workflows/terraform.yml)):
+
+| When | Job | Logs in as |
+| --- | --- | --- |
+| Every PR | `tf-plan`: plan the `gcp` stack (no state lock) | `tf-plan` |
+| Every PR | `tf-apply-gate`: tries to act as `tf-apply` and **must be refused** | (refused) |
+| Every PR | `tf-scan`: Trivy misconfiguration scan; HIGH or CRITICAL fails | none |
+| Merge to `main` touching `infra/terraform/gcp/` | `tf-apply-gate-main`: tries `tf-apply` without `prod`, **must be refused** | (refused) |
+| Same, then **you approve** | `tf-apply`: plan and apply | `tf-apply` |
+
+Actions logs are public on this repo, so project-specific values are Actions **secrets**, which GitHub
+masks everywhere; variables are never masked.
 
 **Never create secret values through Terraform.** State is readable by the plan account. Terraform
 creates secret containers; values are added by hand (Secret Manager) or by CI.
