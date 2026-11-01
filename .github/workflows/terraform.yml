@@ -77,7 +77,11 @@ jobs:
             echo "::error::tf-plan can read the shared stack's state. The bootstrap condition is missing."
             exit 1
           fi
-          echo "Refused as expected: $(grep -oE '\b(403|404)\b' err.txt | head -1 || echo error)"
+          # 404 until the shared stack has state, then 403. Anything else (e.g. an auth error) fails.
+          if ! grep -qE '\b(403|404)\b|[Nn]ot [Ff]ound|[Ff]orbidden|does not have' err.txt; then
+            echo "::error::Unexpected error reading the shared state:"; head -1 err.txt; exit 1
+          fi
+          echo "Refused as expected: $(head -1 err.txt)"
       - name: Init
         run: terraform -chdir="$STACK" init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -lockfile=readonly
       - name: Plan (no state lock; the plan account cannot write state)
