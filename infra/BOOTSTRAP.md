@@ -214,10 +214,43 @@ database and the `chatbot_owner` role. It pipes the owner's connection string in
 `neon-owner-url` without printing it. It's safe to rerun: an existing project is kept, and the
 secret is only filled while it's empty.
 
-App roles (`app_gcp`, `usage_writer`, `indexer`) are created later by SQL migrations (#20), each
-with only its own grants. Their passwords go straight into their own secrets.
+App roles are created by SQL migrations, each with only its own grants. Their passwords go straight
+into their own secrets.
+
+To rotate the owner password, for example after it was exposed, run
+`bash infra/scripts/neon-bootstrap.sh --rotate-owner`. It resets the password through Neon's API,
+stores the new connection string, and destroys the older versions.
 
 - [x] Neon project created and the owner connection string stored (2026-11-01)
+
+### Run migrations and set role passwords (as they're added)
+
+Migrations in [`migrations/`](../migrations/) are plain SQL, applied in order and recorded in
+`schema_migrations`. An edited migration stops the run, so you fix forward with a new file. They run
+as the Neon owner, read from Secret Manager straight into the command's environment:
+
+```bash
+export MIGRATIONS_DATABASE_URL="$(gcloud secrets versions access latest \
+  --secret neon-owner-url --project "$GCP_PROJECT_ID")"
+uv run python migrations/migrate.py --status   # read-only: what's applied and pending
+uv run python migrations/migrate.py            # apply what's pending
+unset MIGRATIONS_DATABASE_URL
+```
+
+When a migration adds an app role, give it a password. The script generates one, sends Postgres only
+its SCRAM hash, and stores the role's connection string in its own secret without printing it. Run it
+again to rotate (then redeploy):
+
+```bash
+bash infra/scripts/neon-role-password.sh usage_writer   # -> neon-usage-writer-url
+```
+
+| Role | Can | Secret | Read by |
+| --- | --- | --- | --- |
+| `chatbot_owner` | everything (Neon admin role); migrations only | `neon-owner-url` | you |
+| `usage_writer` | `INSERT` into `llm_usage`, nothing else | `neon-usage-writer-url` | `chatbot-run` |
+
+- [ ] M1: migrations 0001–0002 applied; `usage_writer` password set
 
 ## 5. Run the bootstrap stack (locally, once per cloud)
 
