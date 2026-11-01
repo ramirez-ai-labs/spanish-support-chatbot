@@ -75,3 +75,7 @@ layers = ["apps", "adapters", "core"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Integration tests call real services (e.g. Gemini). CI and the default run skip them; run them
+# locally with `uv run pytest -m integration`.
+addopts = "-m 'not integration' --strict-markers"
+markers = ["integration: calls a real external service; needs credentials in .env"]
