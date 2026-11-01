@@ -9,6 +9,12 @@ variable "region" {
   default     = "us-east4"
 }
 
+variable "ui_origin" {
+  description = "Origin of the chat page (the shared stack's Pages project): the only browser origin allowed to call the API, and the only host whose Turnstile tokens count."
+  type        = string
+  default     = "https://spanish-support-chatbot.pages.dev"
+}
+
 variable "labels" {
   description = "Labels applied to every resource that supports them."
   type        = map(string)

@@ -59,3 +59,23 @@ class ToolProvider(Protocol):
     ) -> ToolResult:
         """Runs a tool. Raises `UnknownTool`, or `ToolDenied` with a reason code."""
         ...
+
+
+class BotCheck(Protocol):
+    """Verifies the human-check token the chat page sends with each message.
+
+    Raises `core.bot_check.BotCheckFailed` with a reason code: the token is missing, invalid, used
+    already, from another site, or the check itself is unreachable (which fails closed).
+    """
+
+    def verify(self, token: str | None) -> None: ...
+
+
+class DeployProbe(Protocol):
+    """Recognizes the deploy pipeline's own signed identity, which may skip the bot check.
+
+    Raises `core.identity.InvalidToken` for anything else. A probe still gets the anonymous tier:
+    it only proves the request comes from the approved deploy job, not that it's a customer.
+    """
+
+    def verify(self, token: str) -> None: ...

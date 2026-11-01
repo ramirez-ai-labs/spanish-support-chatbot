@@ -390,7 +390,7 @@ applies until the bootstrap stack is updated.
 | Every PR | `tf-apply-gate`: tries to act as `tf-apply` and **must be refused** | (refused) |
 | Every PR | `tf-scan`: Trivy misconfiguration scan; HIGH or CRITICAL fails | none |
 | Merge to `main` touching `infra/terraform/gcp/` or the app (`core/`, `adapters/`, `apps/`, `Dockerfile`, dependencies) | `tf-apply-gate-main`: tries `tf-apply` without `prod`, **must be refused** | (refused) |
-| Same (or `infra/terraform/shared/`), then **you approve** | `tf-apply`: plan and apply the `shared` stack (Cloudflare; only here, since its token is a `prod` environment secret) and the `gcp` stack, build and push the image, deploy it to Cloud Run, smoke test `/health`, a forged token and one streamed answer | `tf-apply` |
+| Same (or `infra/terraform/shared/`), then **you approve** | `tf-apply`: plan and apply the `shared` stack (Cloudflare; only here, since its token is a `prod` environment secret) and the `gcp` stack, build and push the image, deploy it to Cloud Run, smoke test `/health`, a forged token, a missing bot check, and one streamed answer as the deploy probe | `tf-apply` |
 
 Actions logs are public on this repo, so project-specific values are Actions **secrets**, which GitHub
 masks everywhere; variables are never masked.
