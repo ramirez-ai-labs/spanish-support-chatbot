@@ -200,7 +200,8 @@ flowchart LR
 - **Keyless CI login.** GitHub's OIDC token is exchanged through Workload Identity Federation.
   Google trusts it only for this repository, pinned by numeric repo and owner IDs.
 - **Two accounts.**
-  - `tf-plan` is read-only and runs on every PR.
+  - `tf-plan` is read-only and runs on every PR. It can read every stack's state except
+    `shared/`, where Cloudflare's provider stores the Turnstile secret; a PR check proves it.
   - `tf-apply` is trusted only for jobs on `main` in the approval-gated `prod` environment.
   - Google checks the environment, not just GitHub, so a modified workflow file can't skip it.
 - **Least privilege.**
