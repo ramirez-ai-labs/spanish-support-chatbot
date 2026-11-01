@@ -89,6 +89,10 @@ evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,d
   project IDs, billing details, emails, local paths, machine details, or names of unrelated projects.
   Use placeholders like `<demo-project-id>`; real values live in `.env`, gitignored `*.tfvars` or
   GitHub Actions variables.
+- **Never create secret values through Terraform**: state is readable by the plan account and
+  stored in a bucket. Terraform creates the secret container; the value is added by hand or by CI.
+- Infra changes from CI apply only in the approval-gated `prod` GitHub environment on `main`;
+  the apply account's GCP trust requires it.
 - Secrets come from the cloud secret store, never from code or committed files. Keep `.env.example`
   current; never commit `.env`.
 - Never weaken or skip a security check (scanners, branch protection, eval gate) for convenience.

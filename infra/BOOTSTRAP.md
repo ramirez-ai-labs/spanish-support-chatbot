@@ -200,7 +200,13 @@ gh variable set CLOUDFLARE_ACCOUNT_ID --body <account-id>
   - `tf-plan`: read-only, usable by any workflow run in this repo, so PR checks can plan. It can
     read state but never write it (plans run with `-lock=false`).
   - `tf-apply`: changes infrastructure; usable only by `push` and `workflow_dispatch` runs on
-    `main`. Pull requests get `refs/pull/N/merge`, so they can never impersonate it.
+    `main` **in the `prod` GitHub environment**, which requires the owner's approval. Pull
+    requests get `refs/pull/N/merge` and jobs without the environment get `none`, so neither can
+    impersonate it. It holds service-specific roles (Cloud Run, Artifact Registry, Firestore,
+    Secret Manager, BigQuery, Service Usage, service accounts), not `editor`, and its IAM admin
+    role is conditioned to grant only an allowlist of runtime roles: it can never grant itself
+    owner or editor.
+  - Data Access audit logs on `sts` and `iamcredentials` record every CI login.
 - **M7:** Azure Entra app registration + federated credentials for this repo
 - **M8:** AWS IAM OIDC provider for GitHub + a deploy role trusted only by this repo
 
@@ -261,19 +267,27 @@ terraform providers lock -platform=windows_amd64 -platform=darwin_amd64 \
 
 Then run `terraform init` and `terraform plan` from the other OS to confirm it shows no changes.
 
-- [ ] M1: GCP bootstrap applied
-- [ ] M1: state migrated to the bucket; local state and plan files deleted
+- [x] M1: GCP bootstrap applied (2026-10-31)
+- [x] M1: state migrated to the bucket; local state and plan files deleted (2026-10-31)
 - [ ] M1: clean `plan` from the second OS
-- [ ] M1: outputs stored as Actions variables
+- [x] M1: outputs stored as Actions variables (2026-10-31)
 - [ ] M7: Azure added to bootstrap; outputs stored as Actions variables
 - [ ] M8: AWS added to bootstrap; outputs stored as Actions variables
 
 ## 6. Hand off to CI and lock down
 
+The `prod` GitHub environment (Settings → Environments) requires the owner's approval and allows
+only protected branches. Its name is part of the apply account's trust, so renaming it breaks
+applies until the bootstrap stack is updated.
+
+**Never create secret values through Terraform.** State is readable by the plan account. Terraform
+creates secret containers; values are added by hand (Secret Manager) or by CI.
+
+
 - [ ] M1: `shared` and `gcp` stacks plan on PR and apply on merge
 - [ ] M7: `azure` stack plans on PR and applies on merge
 - [ ] M8: `aws` stack plans on PR and applies on merge
-- [ ] `prod` GitHub environment requires approval
+- [x] `prod` GitHub environment requires approval (2026-10-31)
 - [ ] Weekly scheduled `terraform plan` drift check enabled
 - [ ] Local admin sessions logged out or downgraded to read-only — consoles are for looking only
 

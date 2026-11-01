@@ -11,9 +11,43 @@ locals {
     "serviceusage.googleapis.com",
   ]
 
-  # Only these GitHub events on main may act as the apply account. pull_request runs get
-  # refs/pull/N/merge, and other branches get their own ref, so neither matches.
-  apply_ref_events = ["refs/heads/main@push", "refs/heads/main@workflow_dispatch"]
+  # Only jobs on main that run in the approval-gated `prod` GitHub environment may act as the
+  # apply account. pull_request runs get refs/pull/N/merge, other branches their own ref, and
+  # jobs without the environment get "none", so none of them match.
+  apply_gates = [
+    "refs/heads/main@push@prod",
+    "refs/heads/main@workflow_dispatch@prod",
+  ]
+
+  # What the apply account needs for the gcp stack (Cloud Run, Artifact Registry, Firestore,
+  # Secret Manager, BigQuery) instead of roles/editor.
+  apply_roles = [
+    "roles/run.admin",
+    "roles/artifactregistry.admin",
+    "roles/datastore.owner",
+    "roles/secretmanager.admin",
+    "roles/bigquery.admin",
+    "roles/serviceusage.serviceUsageAdmin",
+    "roles/iam.serviceAccountAdmin", # create runtime service accounts
+    "roles/iam.serviceAccountUser",  # deploy Cloud Run revisions as those accounts
+  ]
+
+  # The only project roles the apply account may grant (to runtime service accounts). It can
+  # never grant owner, editor or IAM admin, including to itself.
+  grantable_roles = [
+    "roles/logging.logWriter",
+    "roles/cloudtrace.agent",
+    "roles/monitoring.metricWriter",
+    "roles/datastore.user",
+    "roles/secretmanager.secretAccessor",
+    "roles/bigquery.dataEditor",
+    "roles/bigquery.jobUser",
+    "roles/artifactregistry.reader",
+    "roles/run.invoker",
+  ]
+
+  # Data Access audit logs for the APIs CI uses to log in, so every token exchange is recorded.
+  audited_services = ["sts.googleapis.com", "iamcredentials.googleapis.com"]
 }
 
 resource "google_project_service" "this" {
@@ -77,7 +111,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.repository"          = "assertion.repository"
     "attribute.repository_id"       = "assertion.repository_id"
     "attribute.repository_owner_id" = "assertion.repository_owner_id"
-    "attribute.ref_event"           = "assertion.ref + '@' + assertion.event_name"
+    "attribute.gate"                = "assertion.ref + '@' + assertion.event_name + '@' + ('environment' in assertion ? assertion.environment : 'none')"
   }
 
   # Pinned to numeric IDs, so a renamed, transferred or re-created repo cannot authenticate.
@@ -108,11 +142,11 @@ resource "google_service_account_iam_member" "plan_wif" {
 }
 
 resource "google_service_account_iam_member" "apply_wif" {
-  for_each = toset(local.apply_ref_events)
+  for_each = toset(local.apply_gates)
 
   service_account_id = google_service_account.apply.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.ref_event/${each.value}"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.gate/${each.value}"
 }
 
 resource "google_project_iam_member" "plan" {
@@ -126,17 +160,45 @@ resource "google_project_iam_member" "plan" {
   member  = "serviceAccount:${google_service_account.plan.email}"
 }
 
-# Broad while the gcp stack takes shape; narrowed to the roles it actually uses in M5.
 resource "google_project_iam_member" "apply" {
-  for_each = toset([
-    "roles/editor",
-    "roles/resourcemanager.projectIamAdmin",
-    "roles/iam.serviceAccountAdmin",
-  ])
+  for_each = toset(local.apply_roles)
 
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.apply.email}"
+}
+
+# IAM admin limited by condition: the apply account can add or remove only grantable_roles.
+resource "google_project_iam_member" "apply_grant_runtime_roles" {
+  project = var.project_id
+  role    = "roles/resourcemanager.projectIamAdmin"
+  member  = "serviceAccount:${google_service_account.apply.email}"
+
+  condition {
+    title       = "runtime-roles-only"
+    description = "May grant only the runtime roles listed in the bootstrap stack"
+    expression  = "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly([${join(", ", formatlist("'%s'", local.grantable_roles))}])"
+  }
+}
+
+# --- Audit -----------------------------------------------------------------------------------------
+
+# Admin Activity logs are always on; these add Data Access logs for CI logins.
+resource "google_project_iam_audit_config" "ci_login" {
+  for_each = toset(local.audited_services)
+
+  project = var.project_id
+  service = each.value
+
+  audit_log_config {
+    log_type = "ADMIN_READ"
+  }
+  audit_log_config {
+    log_type = "DATA_READ"
+  }
+  audit_log_config {
+    log_type = "DATA_WRITE"
+  }
 }
 
 # Plans run with -lock=false, so the plan account only reads state and a PR can never write it.
