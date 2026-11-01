@@ -103,6 +103,24 @@ resource "google_secret_manager_secret" "neon_usage_writer_url" {
   depends_on = [google_project_service.secretmanager]
 }
 
+# Turnstile's server-side secret, which the API uses to verify the chat page's bot-check tokens.
+# Container only: infra/scripts/turnstile-secret.sh rotates the widget's secret through Cloudflare's
+# API and adds the new value. Only the runtime account can read it.
+resource "google_secret_manager_secret" "turnstile_secret" {
+  secret_id = "turnstile-secret"
+  labels    = var.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
 # Identity the API runs as on Cloud Run, instead of the default compute account (which has editor).
 resource "google_service_account" "run" {
   account_id   = "chatbot-run"
@@ -118,6 +136,12 @@ resource "google_secret_manager_secret_iam_member" "run_gemini_api_key" {
 
 resource "google_secret_manager_secret_iam_member" "run_neon_usage_writer_url" {
   secret_id = google_secret_manager_secret.neon_usage_writer_url.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.run.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "run_turnstile_secret" {
+  secret_id = google_secret_manager_secret.turnstile_secret.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.run.email}"
 }

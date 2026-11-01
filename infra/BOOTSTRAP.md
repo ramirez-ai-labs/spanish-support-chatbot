@@ -197,6 +197,23 @@ gh secret set CLOUDFLARE_ACCOUNT_ID --env prod
 - [x] Cloudflare: account API token (Pages and Turnstile only) and account ID in `.env` (2026-11-01)
 - [x] Cloudflare values stored as `prod` environment secrets (2026-11-01)
 
+### Turnstile secret (M1, once, and to rotate)
+
+The chat widget's server-side secret is stored by Cloudflare's provider in the `shared` state, which
+only `tf-apply` can read. The API reads its own copy from Secret Manager. To create or rotate that
+copy, after the apply that creates the `turnstile-secret` container:
+
+```bash
+bash infra/scripts/turnstile-secret.sh
+```
+
+It rotates the secret through Cloudflare's API, so the old one stops working at once. It then stores
+the new one without printing it, and destroys older versions. Redeploy afterwards, because instances
+read the secret when they start.
+
+- [ ] M1: Turnstile secret rotated and stored (this also retires the copy PR jobs could read before
+  the state bucket's policy was made authoritative)
+
 ### Create the Neon project (M1, once)
 
 Neon isn't in Terraform ([ADR 0006](../docs/adr/0006-neon-outside-terraform.md)): its provider saves
