@@ -12,3 +12,8 @@ output "runtime_service_account" {
   description = "Service account the API runs as on Cloud Run."
   value       = google_service_account.run.email
 }
+
+output "api_service" {
+  description = "Cloud Run service name the deploy step updates."
+  value       = google_cloud_run_v2_service.api.name
+}

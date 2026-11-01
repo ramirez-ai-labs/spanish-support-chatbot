@@ -78,7 +78,7 @@ jobs:
       - name: Smoke test with the mock LLM
         run: |
           docker run -d --name api -p 8000:8000 -e LLM_PROVIDER=mock spanish-support-chatbot:ci
-          for i in $(seq 1 30); do curl -sf localhost:8000/healthz && break; sleep 1; done
+          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 1; done
           curl -sfN localhost:8000/v1/chat -H 'Content-Type: application/json' \
             -d '{"message": "¿Cómo bloqueo mi tarjeta?"}' | tee reply.txt
           grep -q 'event: done' reply.txt
