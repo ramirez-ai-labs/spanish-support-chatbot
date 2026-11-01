@@ -8,16 +8,18 @@ import asyncio
 import json
 import logging
 import os
+import time
 from collections.abc import AsyncIterator, Callable
 
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from core.chat import MAX_MESSAGE_CHARS, ChatService
-from core.ports import LLMProvider
+from core.identity import ANONYMOUS, Caller, InvalidToken, caller_for
+from core.ports import IdentityProvider, LLMProvider
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -43,6 +45,18 @@ def build_llm() -> LLMProvider:
     raise ValueError(f"Unknown LLM_PROVIDER: {provider!r} (expected 'gemini' or 'mock')")
 
 
+def build_identity() -> IdentityProvider | None:
+    """Pick the token verifier from IDENTITY_PROVIDER. With none, every token is rejected."""
+    provider = os.environ.get("IDENTITY_PROVIDER", "none")
+    if provider == "none":
+        return None
+    if provider == "firebase":
+        from adapters.gcp.firebase_auth import firebase_identity_provider
+
+        return firebase_identity_provider(os.environ["GOOGLE_CLOUD_PROJECT"])
+    raise ValueError(f"Unknown IDENTITY_PROVIDER: {provider!r} (expected 'firebase' or 'none')")
+
+
 def build_tracing() -> Callable[[], None] | None:
     """Pick the span exporter from TRACE_EXPORTER; tracing stays a no-op when it is unset."""
     exporter = os.environ.get("TRACE_EXPORTER", "none")
@@ -66,12 +80,33 @@ def build_tracing() -> Callable[[], None] | None:
 
 
 def create_app(
-    llm: LLMProvider | None = None, flush_traces: Callable[[], None] | None = None
+    llm: LLMProvider | None = None,
+    flush_traces: Callable[[], None] | None = None,
+    identity: IdentityProvider | None = None,
 ) -> FastAPI:
     if llm is None:
         llm = build_llm()
         flush_traces = build_tracing()
+        identity = build_identity()
     chat = ChatService(llm)
+
+    def identify(authorization: str | None) -> Caller | None:
+        """Anonymous without a token; None (reject with 401) for a token that does not verify."""
+        if authorization is None:
+            return ANONYMOUS
+        scheme, _, token = authorization.partition(" ")
+        token = token.strip()
+        try:
+            if scheme.lower() != "bearer" or not token:
+                raise InvalidToken("malformed_header")
+            if identity is None:
+                raise InvalidToken("no_identity_provider")
+            return caller_for(identity.verify(token), now=time.time())
+        except InvalidToken as exc:
+            # The reason code only: never the token or its claims.
+            logger.info("auth_rejected reason=%s", exc.reason)
+            return None
+
     # FastAPI's built-in telemetry is off. Its request span ends after the response is sent,
     # when serverless CPU is already throttled, so it would miss the flush below, and its logs
     # option records validation errors, which can include the message text.
@@ -86,7 +121,16 @@ def create_app(
         return {"status": "ok"}
 
     @app.post("/v1/chat")
-    def post_chat(request: ChatRequest, http: Request) -> StreamingResponse:
+    def post_chat(request: ChatRequest, http: Request) -> Response:
+        # Every call is checked: the tier comes from this request's token, not from earlier ones.
+        # The token stops here; only the message text goes on to the chat service and the model.
+        caller = identify(http.headers.get("authorization"))
+        if caller is None:
+            return JSONResponse(
+                {"error": "invalid_token"},
+                status_code=401,
+                headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
+            )
         # Continues the browser's trace when it sends `traceparent`; otherwise starts one.
         parent = propagate.extract(http.headers)
 
@@ -100,6 +144,7 @@ def create_app(
                     "http.request.method": "POST",
                     "http.route": "/v1/chat",
                     "chat.outcome": "incomplete",  # stays so if the client leaves mid-stream
+                    "auth.tier": caller.tier.value,
                 },
             )
             try:

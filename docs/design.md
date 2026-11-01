@@ -146,8 +146,24 @@ Rules every tool follows:
 - Staff copilots reach the same tools over MCP in M9, with the same checks. MCP tool descriptions
   and results are treated as untrusted input and pass through the guardrails.
 
-**Live today:** anonymous tier only. Sign-in and the token check arrive with
-[#18](https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/18).
+**Live today:** the token check runs on every `POST /v1/chat`, behind the `IdentityProvider`
+port.
+- **No `Authorization` header** gives the anonymous tier.
+- **A token must pass every check** to count:
+  - RS256 only, with a key from Google's published Firebase keys
+  - issuer and audience equal to the project
+  - not expired
+  - `sub` and `auth_time` present, and `auth_time` not in the future
+- **Anything else gets a 401 before anything streams.** The log records only a reason code,
+  never the token.
+- **The token stops at the API.** The chat service and the model see only the message.
+- **The tier rule lives in `core/identity.py`**, so it's the same on every cloud: step-up means
+  signed in within the last 5 minutes. Tools that use the tiers arrive in M3.
+- **The JWT checker is generic** (`adapters/shared/jwt_identity.py`). Firebase supplies only its
+  key URL, issuer and audience; Entra and Cognito will do the same in M7 and M8.
+- **Signing in** (Firebase email sign-in) is turned on with the chat UI
+  ([#22](https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/22)), the first thing
+  that signs anyone in.
 
 ## 6. Offline path
 

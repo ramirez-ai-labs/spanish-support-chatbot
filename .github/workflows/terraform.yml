@@ -199,6 +199,14 @@ jobs:
             echo "::error::/health did not return ok: the container did not start or is not serving."
             exit 1
           fi
+          # A forged token must be refused by the app (not by Cloud Run) before anything streams.
+          forged="eyJhbGciOiJSUzI1NiIsImtpZCI6InNtb2tlIn0.eyJzdWIiOiJzbW9rZSJ9.c21va2U"
+          refused="$(curl -s --max-time 10 -w ' %{http_code}' -H "Authorization: Bearer $forged" \
+            -H 'Content-Type: application/json' -d '{"message": "hola"}' "$url/v1/chat")"
+          if [ "$refused" != '{"error":"invalid_token"} 401' ]; then
+            echo "::error::A forged token was not refused with 401 invalid_token: the token check is not live."
+            exit 1
+          fi
           # One real question through Gemini: the stream must carry text and end with "done".
           reply="$(curl -sN --max-time 90 -H 'Content-Type: application/json' \
             -d '{"message": "¿Cómo bloqueo mi tarjeta?"}' "$url/v1/chat")"
@@ -210,7 +218,7 @@ jobs:
             echo "::error::Chat stream was incomplete: no text, or no final done event (timeout or cut connection)."
             exit 1
           fi
-          echo "Smoke test passed: /health ok and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
+          echo "Smoke test passed: /health ok, forged token refused, and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
 
   scan:
     name: tf-scan
