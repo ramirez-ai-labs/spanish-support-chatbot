@@ -336,7 +336,7 @@ applies until the bootstrap stack is updated.
 
 | When | Job | Logs in as |
 | --- | --- | --- |
-| Every PR | `tf-plan`: plan the `gcp` stack (no state lock) | `tf-plan` |
+| Every PR | `tf-plan`: plan the `gcp` stack (no state lock), and check it **can't** read the `shared` stack's state | `tf-plan` |
 | Every PR | `tf-apply-gate`: tries to act as `tf-apply` and **must be refused** | (refused) |
 | Every PR | `tf-scan`: Trivy misconfiguration scan; HIGH or CRITICAL fails | none |
 | Merge to `main` touching `infra/terraform/gcp/` or the app (`core/`, `adapters/`, `apps/`, `Dockerfile`, dependencies) | `tf-apply-gate-main`: tries `tf-apply` without `prod`, **must be refused** | (refused) |

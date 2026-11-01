@@ -69,6 +69,15 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_PLAN_SA }}
+      - name: The plan account must not read the shared stack's state (it holds provider-stored secrets)
+        env:
+          BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+        run: |
+          if gcloud storage cat "gs://$BUCKET/shared/default.tfstate" >/dev/null 2>err.txt; then
+            echo "::error::tf-plan can read the shared stack's state. The bootstrap condition is missing."
+            exit 1
+          fi
+          echo "Refused as expected: $(grep -oE '\b(403|404)\b' err.txt | head -1 || echo error)"
       - name: Init
         run: terraform -chdir="$STACK" init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -lockfile=readonly
       - name: Plan (no state lock; the plan account cannot write state)

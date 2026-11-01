@@ -226,10 +226,18 @@ resource "google_project_iam_audit_config" "ci_login" {
 }
 
 # Plans run with -lock=false, so the plan account only reads state and a PR can never write it.
+# It can't read the `shared` stack's state at all. Cloudflare's provider stores the Turnstile secret
+# there, and that stack is only planned inside the approved prod job, as tf-apply.
 resource "google_storage_bucket_iam_member" "plan_state" {
   bucket = google_storage_bucket.tfstate.name
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.plan.email}"
+
+  condition {
+    title       = "not-shared-state"
+    description = "Every stack's state except shared/, which holds provider-stored secrets"
+    expression  = "!resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.tfstate.name}/objects/shared/\")"
+  }
 }
 
 resource "google_storage_bucket_iam_member" "apply_state" {
