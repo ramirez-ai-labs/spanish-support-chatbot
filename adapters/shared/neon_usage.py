@@ -18,7 +18,8 @@ from core.usage import LLMUsage
 
 logger = logging.getLogger(__name__)
 
-# Generous: a Neon compute that scaled to zero takes seconds to wake up, and a retry reconnects.
+# Per attempt. Generous: a Neon compute that scaled to zero takes seconds to wake up. The whole
+# write gets two attempts' worth, so the reconnect after an idle spell isn't cut short.
 WRITE_TIMEOUT_SECONDS = 15
 
 INSERT = """
@@ -30,20 +31,26 @@ insert into llm_usage (
 
 
 class NeonUsageSink:
-    def __init__(self, url: str, connect: Callable[[], Awaitable[Any]] | None = None) -> None:
+    def __init__(
+        self,
+        url: str,
+        connect: Callable[[], Awaitable[Any]] | None = None,
+        timeout_seconds: float = WRITE_TIMEOUT_SECONDS,
+    ) -> None:
         self._url = url
         self._connect = connect or self._open
+        self._timeout = timeout_seconds
         self._conn: Any = None
         self._lock = asyncio.Lock()  # one connection, so one insert at a time
 
     async def _open(self) -> psycopg.AsyncConnection[tuple[object, ...]]:
         return await psycopg.AsyncConnection.connect(
-            self._url, autocommit=True, connect_timeout=WRITE_TIMEOUT_SECONDS
+            self._url, autocommit=True, connect_timeout=max(2, round(self._timeout))
         )
 
     async def record(self, usage: LLMUsage) -> None:
         try:
-            await asyncio.wait_for(self._insert_with_retry(usage), WRITE_TIMEOUT_SECONDS)
+            await asyncio.wait_for(self._insert_with_retry(usage), 2 * self._timeout)
         except Exception as exc:
             logger.warning("usage_write_failed type=%s", type(exc).__name__)
             await self._drop_connection()

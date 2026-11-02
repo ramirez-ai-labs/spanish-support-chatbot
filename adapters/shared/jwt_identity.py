@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 import jwt
 
-from core.identity import InvalidToken, VerifiedToken
+from core.identity import IdentityUnavailable, InvalidToken, VerifiedToken
 
 REQUIRED_CLAIMS = ["exp", "iat", "sub", "auth_time"]
 
@@ -55,6 +55,9 @@ class JwtIdentityProvider:
             raise InvalidToken("wrong_issuer") from exc
         except jwt.MissingRequiredClaimError as exc:
             raise InvalidToken("missing_claim") from exc
+        except jwt.PyJWKClientConnectionError as exc:
+            # The key endpoint is unreachable: not the token's fault, so not a 401.
+            raise IdentityUnavailable() from exc
         except jwt.PyJWKClientError as exc:
             raise InvalidToken("unknown_key") from exc
         except jwt.PyJWTError as exc:

@@ -9,11 +9,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+import jwt
 import pytest
 
 from adapters.gcp.firebase_auth import firebase_identity_provider
 from adapters.shared.jwt_identity import JwtIdentityProvider
-from core.identity import InvalidToken
+from core.identity import IdentityUnavailable, InvalidToken
 from core.ports import IdentityProvider
 from tests.jwt_keys import OTHER_KEY, FakeKeys, claims, forge_hs256_with_public_key, sign
 
@@ -28,16 +29,16 @@ class Adapter:
         return sign(claims(self.issuer, self.audience, **overrides))
 
 
-def generic_jwt() -> Adapter:
+def generic_jwt(keys: Any = None) -> Adapter:
     issuer, audience = "https://issuer.example", "demo-audience"
     return Adapter(
-        JwtIdentityProvider("unused", issuer, audience, keys=FakeKeys()), issuer, audience
+        JwtIdentityProvider("unused", issuer, audience, keys=keys or FakeKeys()), issuer, audience
     )
 
 
-def firebase() -> Adapter:
+def firebase(keys: Any = None) -> Adapter:
     project = "demo-project"
-    provider = firebase_identity_provider(project, keys=FakeKeys())
+    provider = firebase_identity_provider(project, keys=keys or FakeKeys())
     return Adapter(provider, f"https://securetoken.google.com/{project}", project)
 
 
@@ -105,3 +106,19 @@ def test_unsigned_token_is_rejected(adapter: Adapter) -> None:
 def test_garbage_is_rejected(adapter: Adapter, garbage: str) -> None:
     with pytest.raises(InvalidToken):
         adapter.provider.verify(garbage)
+
+
+class UnreachableKeys:
+    """The key endpoint can't be reached, as PyJWKClient reports it."""
+
+    def get_signing_key_from_jwt(self, token: str) -> Any:
+        raise jwt.PyJWKClientConnectionError("Fail to fetch data from the url")
+
+
+@pytest.mark.parametrize("build", ADAPTERS)
+def test_unreachable_keys_are_unavailable_not_an_invalid_token(
+    build: Callable[..., Adapter],
+) -> None:
+    adapter = build(keys=UnreachableKeys())
+    with pytest.raises(IdentityUnavailable):
+        adapter.provider.verify(adapter.token())

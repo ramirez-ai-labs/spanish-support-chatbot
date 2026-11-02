@@ -29,12 +29,19 @@ BLOCKED_FINISH_REASONS = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"}
 # final model; override with GEMINI_MODEL meanwhile.
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
+# Longest wait to connect, or for the next chunk of a streamed answer. A stalled stream otherwise
+# holds the request until Cloud Run's 300 s timeout, and one instance serves 20 requests at most.
+# A timeout ends the answer with the usual model_unavailable error.
+TIMEOUT_MS = 30_000
+
 
 class GeminiLLM:
     def __init__(self, api_key: str, model: str = DEFAULT_MODEL) -> None:
         if not api_key:
             raise ValueError("GEMINI_API_KEY is empty; set it in .env (see .env.example)")
-        self._client = genai.Client(api_key=api_key)
+        self._client = genai.Client(
+            api_key=api_key, http_options=types.HttpOptions(timeout=TIMEOUT_MS)
+        )
         self.model = model
 
     async def stream(

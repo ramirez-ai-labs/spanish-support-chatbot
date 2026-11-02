@@ -149,3 +149,34 @@ def test_the_first_write_after_neon_scaled_to_zero_reconnects_and_keeps_the_row(
     assert fresh.inserts == 1  # the row was written on the retry
     assert "usage_write_failed" not in caplog.text
     assert "usage_write_reconnect" in caplog.text
+
+
+class SlowConnection(FakeConnection):
+    def __init__(self, fail: bool, delay: float) -> None:
+        super().__init__(fail)
+        self.delay = delay
+
+    async def execute(self, query: str, params: object) -> None:
+        await asyncio.sleep(self.delay)
+        await super().execute(query, params)
+
+
+def test_a_slow_reconnect_still_fits_the_write_deadline(caplog: pytest.LogCaptureFixture) -> None:
+    # Each attempt fits its own timeout, but together they take longer than one: the deadline for
+    # the whole write must cover the retry, or this exact case (Neon waking up) loses the row.
+    dead, fresh = SlowConnection(fail=True, delay=0.15), SlowConnection(fail=False, delay=0.15)
+    opened = iter([dead, fresh])
+
+    async def connect() -> FakeConnection:
+        return next(opened)
+
+    sink = NeonUsageSink("unused", connect=connect, timeout_seconds=0.2)
+    record = LLMUsage(
+        "gcp", "mock", "chat", PROMPT_PARTS, TokenUsage(1, 0, 1, 0), 5, 2, "done", None
+    )
+
+    with caplog.at_level("INFO"):
+        asyncio.run(sink.record(record))
+
+    assert fresh.inserts == 1
+    assert "usage_write_failed" not in caplog.text

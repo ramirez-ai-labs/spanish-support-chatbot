@@ -18,6 +18,7 @@ const ERRORS = {
   turnstile_required: "Completa la verificación antes de enviar.",
   turnstile_failed: "La verificación expiró. Inténtalo de nuevo.",
   turnstile_unavailable: "No pudimos verificar que eres una persona. Inténtalo en un momento.",
+  auth_unavailable: "No pudimos verificar tu sesión. Inténtalo en un momento.",
   invalid_email: "Ese correo no es válido.",
   too_many_attempts: "Demasiados intentos. Inténtalo más tarde.",
   sign_in_unavailable: "No pudimos enviar el enlace. Inténtalo en un momento.",
@@ -29,17 +30,30 @@ const ERRORS = {
 
 let widgetId = null;
 let pendingToken = null; // { resolve } while a Turnstile challenge runs for the next send
+let tokenQueue = Promise.resolve(); // one challenge at a time: chat and sign-in share the widget
+const TOKEN_TIMEOUT_MS = 30_000; // then give up with no token, so the button never stays disabled
 
 // Tokens expire after 5 minutes and work once, so each send asks for a fresh one. The widget
 // renders in execute mode: nothing runs until here, and the checkbox only appears when
 // Cloudflare wants an interaction.
 function freshTurnstileToken() {
   if (!window.turnstile || widgetId === null) return Promise.resolve("");
-  return new Promise((resolve) => {
-    pendingToken = { resolve };
-    window.turnstile.reset(widgetId);
-    window.turnstile.execute(widgetId);
-  });
+  const next = tokenQueue.then(
+    () =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => settleToken(""), TOKEN_TIMEOUT_MS);
+        pendingToken = {
+          resolve: (token) => {
+            clearTimeout(timer);
+            resolve(token);
+          },
+        };
+        window.turnstile.reset(widgetId);
+        window.turnstile.execute(widgetId);
+      }),
+  );
+  tokenQueue = next;
+  return next;
 }
 
 function settleToken(token) {
