@@ -1,19 +1,11 @@
 """Contract for ChunkStore: every adapter must pass every test here.
 
-The Neon adapter runs against a real Postgres with pgvector when TEST_DATABASE_URL points at one
-(a superuser on a throwaway database: CI's service container, or `docker compose up db` locally).
-The fixture applies the migrations, lets the `indexer` role log in (the test database trusts local
-connections, so no password exists anywhere), and runs the adapter as that role, so the grants from
-migration 0004 are tested too. Without it, those skip.
+The Neon adapter runs as the `indexer` role against the real Postgres from conftest.py, so the
+grants from migration 0004 are tested too; without TEST_DATABASE_URL, those cases skip.
 """
 
-import os
-import subprocess
-import sys
-from collections.abc import Callable, Iterator
-from pathlib import Path
+from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
 import pytest
@@ -24,30 +16,7 @@ from adapters.shared.neon_chunks import NeonChunkStore
 from core.chunking import Chunk
 from core.indexing import StoredChunk
 from core.ports import ChunkStore
-
-ROOT = Path(__file__).resolve().parents[2]
-ADMIN_URL = os.environ.get("TEST_DATABASE_URL", "")
-
-
-def as_role(url: str, role: str) -> str:
-    parts = urlsplit(url)
-    host = parts.netloc.rsplit("@", 1)[-1]
-    return urlunsplit(parts._replace(netloc=f"{role}@{host}"))
-
-
-@pytest.fixture(scope="module")
-def database() -> Iterator[str]:
-    if not ADMIN_URL:
-        pytest.skip("TEST_DATABASE_URL is not set; start one with `docker compose up -d db`")
-    subprocess.run(
-        [sys.executable, str(ROOT / "migrations" / "migrate.py")],
-        env={**os.environ, "MIGRATIONS_DATABASE_URL": ADMIN_URL},
-        check=True,
-        capture_output=True,
-    )
-    with psycopg.connect(ADMIN_URL, autocommit=True) as conn:
-        conn.execute("alter role indexer with login")
-    yield ADMIN_URL
+from tests.contract.conftest import as_role
 
 
 @pytest.fixture
