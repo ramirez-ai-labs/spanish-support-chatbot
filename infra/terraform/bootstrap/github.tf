@@ -26,6 +26,13 @@ import {
   id = local.repository
 }
 
+# Trivy exceptions, scoped to this one resource:
+# - GIT-0001 (public repository): intended. It's a public portfolio repo, and making it private would
+#   also switch off its free CodeQL and secret scanning.
+# - GIT-0003 (vulnerability alerts): a false positive. Trivy reads the deprecated
+#   `vulnerability_alerts` field here; alerts are enabled by github_repository_vulnerability_alerts.
+#trivy:ignore:GIT-0001
+#trivy:ignore:GIT-0003
 resource "github_repository" "this" {
   name        = local.repository
   description = local.repository
