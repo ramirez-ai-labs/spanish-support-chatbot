@@ -300,3 +300,62 @@ resource "google_cloud_run_v2_service_iam_member" "api_public" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+# --- Sign-in (Identity Platform, the engine behind Firebase Auth) -----------------------------------
+
+resource "google_project_service" "identitytoolkit" {
+  service            = "identitytoolkit.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "apikeys" {
+  service            = "apikeys.googleapis.com"
+  disable_on_destroy = false
+}
+
+# Email-link (passwordless) sign-in only: no passwords to leak, and no SMS to pay for. Tier 1, so up
+# to 50,000 monthly active users are free. Its ID tokens are what the API's Firebase verifier already
+# checks (issuer https://securetoken.google.com/<project>). Note: Google creates this config once per
+# project and it can't be deleted, only changed.
+resource "google_identity_platform_config" "auth" {
+  sign_in {
+    allow_duplicate_emails = false
+
+    email {
+      enabled           = true
+      password_required = false # sign in with a one-time link sent by email
+    }
+  }
+
+  # Where a sign-in may start and be completed: the chat page, plus Google's defaults for local
+  # development and the project's own sign-in handler domains.
+  authorized_domains = [
+    trimprefix(var.ui_origin, "https://"),
+    "localhost",
+    "${var.project_id}.firebaseapp.com",
+    "${var.project_id}.web.app",
+  ]
+
+  depends_on = [google_project_service.identitytoolkit]
+}
+
+# The chat page's browser key for the sign-in API. It's public by design (it's in the page), so it's
+# restricted instead: only the sign-in and token APIs, and only from the chat page and localhost.
+resource "google_apikeys_key" "chat_page" {
+  name         = "chat-page"
+  display_name = "Chat page sign-in"
+
+  restrictions {
+    api_targets {
+      service = "identitytoolkit.googleapis.com"
+    }
+    api_targets {
+      service = "securetoken.googleapis.com"
+    }
+    browser_key_restrictions {
+      allowed_referrers = ["${var.ui_origin}/*", "http://localhost:8080/*"]
+    }
+  }
+
+  depends_on = [google_project_service.apikeys]
+}

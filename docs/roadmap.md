@@ -151,7 +151,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 - [x] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
 - [x] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
 - [x] Slim multi-stage Docker image with a size budget; Trivy image and CodeQL scans in CI. Models are baked in when first used: e5 in M2 (#50), Presidio in M3 (#51)
-- [ ] Firebase Auth email sign-in (#63); JWT validation behind the `IdentityProvider` adapter and no token = anonymous tier are done (#18)
+- [x] Firebase Auth email sign-in: email link through Identity Platform (#63); JWT validation behind the `IdentityProvider` adapter, and no token = anonymous tier (#18)
 - [x] `ToolProvider` port in `core/` with an in-process adapter, so tools can later move behind MCP without changing the agent
 - [x] Contract test suite started: every adapter for a port must pass the same tests
 - [x] Chat UI on Cloudflare Pages: streaming, `traceparent` header, Turnstile (Web Analytics moved to M5, #64)

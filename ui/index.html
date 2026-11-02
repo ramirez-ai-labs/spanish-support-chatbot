@@ -17,6 +17,21 @@
         <p class="note">Banco ficticio · demo con datos sintéticos. No escribas datos reales.</p>
       </header>
 
+      <section id="account" aria-label="Cuenta" hidden>
+        <form id="sign-in" autocomplete="on">
+          <label for="email">Inicia sesión con un enlace por correo (opcional)</label>
+          <div class="row">
+            <input id="email" type="email" required placeholder="tu@correo.com" autocomplete="email" />
+            <button type="submit" id="send-link">Enviar enlace</button>
+          </div>
+        </form>
+        <p id="signed-in" hidden>
+          Sesión iniciada como <strong id="who"></strong> ·
+          <button type="button" id="sign-out" class="link">Cerrar sesión</button>
+        </p>
+        <p id="account-status" class="note" role="status"></p>
+      </section>
+
       <section id="log" aria-live="polite" aria-label="Conversación"></section>
 
       <form id="chat" autocomplete="off">
