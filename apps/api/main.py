@@ -24,6 +24,7 @@ from core.identity import ANONYMOUS, Caller, IdentityUnavailable, InvalidToken, 
 from core.ports import (
     BotCheck,
     DeployProbe,
+    Embedder,
     IdentityProvider,
     LLMProvider,
     SignInLinkSender,
@@ -132,6 +133,33 @@ def build_sign_in() -> SignInLinkSender | None:
     raise ValueError(f"Unknown SIGN_IN_SENDER: {sender!r} (expected 'identity_platform' or 'none')")
 
 
+def build_embedder() -> Embedder | None:
+    """Pick the embedder from EMBEDDER; none by default (tests, local runs without the model).
+
+    Loaded once at startup, so its cost lands on the cold start, not on the first question.
+    """
+    choice = os.environ.get("EMBEDDER", "none")
+    if choice == "none":
+        return None
+    if choice == "hash":
+        from adapters.shared.hash_embedder import HashEmbedder
+
+        return HashEmbedder()
+    if choice == "e5":
+        from pathlib import Path
+
+        from adapters.shared.e5 import E5Embedder
+
+        started = time.perf_counter()
+        embedder = E5Embedder(Path(os.environ["E5_MODEL_DIR"]))
+        embedder.embed_query("hola")  # first run allocates ONNX Runtime's buffers
+        logger.info(
+            "embedder_loaded model=%s ms=%d", embedder.model, (time.perf_counter() - started) * 1000
+        )
+        return embedder
+    raise ValueError(f"Unknown EMBEDDER: {choice!r} (expected 'e5', 'hash' or 'none')")
+
+
 def build_tracing() -> Callable[[], None] | None:
     """Pick the span exporter from TRACE_EXPORTER; tracing stays a no-op when it is unset."""
     exporter = os.environ.get("TRACE_EXPORTER", "none")
@@ -163,6 +191,7 @@ def create_app(
     deploy_probe: DeployProbe | None = None,
     origins: list[str] | None = None,
     sign_in: SignInLinkSender | None = None,
+    embedder: Embedder | None = None,
 ) -> FastAPI:
     if llm is None:
         llm = build_llm()
@@ -173,6 +202,7 @@ def create_app(
         deploy_probe = build_deploy_probe()
         origins = allowed_origins()
         sign_in = build_sign_in()
+        embedder = build_embedder()  # used by retrieval from #88; loaded now to measure its cost
     chat = ChatService(llm, usage=usage, cloud=os.environ.get("CLOUD", "local"))
 
     def identify(authorization: str | None) -> Caller:
@@ -225,6 +255,7 @@ def create_app(
         title="spanish-support-chatbot",
         telemetry={"tracing": False, "metrics": False, "logs": False},
     )
+    app.state.embedder = embedder
 
     # Only the chat page's origin may call the API from a browser. The headers are the ones the
     # page sends: its user's token, its trace context and its bot-check token.

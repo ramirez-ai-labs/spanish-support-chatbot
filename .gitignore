@@ -235,3 +235,6 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+
+# Model files fetched for local tests (python -m adapters.shared.e5 fetch .models/e5)
+.models/
