@@ -16,11 +16,12 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 
 ## Current status
 
-M1 shipped as `v0.1.0` (M0 as `v0.0.1`). Two M1 items follow as `v0.1.1`: sign-in (#63) and GitHub
-settings as code (#21). Live today:
+M1 shipped as `v0.1.0` (M0 as `v0.0.1`). Email-link sign-in (#63) and GitHub settings as code (#21)
+follow as `v0.1.1`. Live today:
 
 - the chat page on Cloudflare Pages (Turnstile, browser-started traces) calling the API on Cloud Run
-- on every call: the token check (anonymous tier until sign-in), the bot check, Gemini's content
+- optional email-link sign-in (Identity Platform), giving the signed-in and step-up tiers
+- on every call: the token check (anonymous without a token), the bot check, Gemini's content
   filters, one trace in Cloud Trace, and one usage row in Neon with its shadow cost
 - the stacks: `bootstrap` (applied locally), `gcp` and `shared` (Cloudflare), applied by CI;
   Neon is scripted, with roles and grants in `migrations/` (ADR 0006)

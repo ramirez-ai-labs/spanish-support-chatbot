@@ -272,10 +272,14 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          # The uploaded copy gets the deployed API's URL and the widget's public site key.
+          # The uploaded copy gets the deployed API's URL, the widget's public site key and the
+          # restricted sign-in browser key (public in the page; masked here to keep logs clean).
           site_key="$(terraform -chdir=infra/terraform/shared output -raw turnstile_site_key)"
+          sign_in_key="$(terraform -chdir="$STACK" output -raw sign_in_api_key)"
+          echo "::add-mask::$sign_in_key"
           rm -rf ui-dist && cp -r ui ui-dist
-          printf 'window.CHAT_CONFIG = { apiUrl: "%s", turnstileSiteKey: "%s" };\n' "$URL" "$site_key" > ui-dist/config.js
+          printf 'window.CHAT_CONFIG = { apiUrl: "%s", turnstileSiteKey: "%s", signInApiKey: "%s" };\n' \
+            "$URL" "$site_key" "$sign_in_key" > ui-dist/config.js
           sed -i "s#__API_ORIGIN__#$URL#" ui-dist/_headers
           npx --yes wrangler@4.156.0 pages deploy ui-dist --project-name spanish-support-chatbot \
             --branch main --commit-hash "$GITHUB_SHA" --commit-dirty=true

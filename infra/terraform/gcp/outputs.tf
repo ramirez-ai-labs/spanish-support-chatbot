@@ -17,3 +17,9 @@ output "api_service" {
   description = "Cloud Run service name the deploy step updates."
   value       = google_cloud_run_v2_service.api.name
 }
+
+output "sign_in_api_key" {
+  description = "The chat page's browser key for sign-in. Public by design but restricted; marked sensitive only to keep it out of logs."
+  value       = google_apikeys_key.chat_page.key_string
+  sensitive   = true
+}
