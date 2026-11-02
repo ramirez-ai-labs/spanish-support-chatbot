@@ -168,7 +168,7 @@ Done when: answers cite the right market's policy chunk, starting with four mark
 **Demo:** the same question as a US customer and a Mexican customer gets different answers, each with sources.
 
 - [ ] First: MFA on GitHub and Google (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare. Moved from M1; Azure and AWS get MFA in M7 and M8
-- [ ] 20 to 40 synthetic Spanish FAQ and policy docs, tagged by market (e.g., US, MX, PE) or all; the market list is config, so adding a country is data, not code
+- [x] 20 to 40 synthetic Spanish FAQ and policy docs, tagged by market or all: 28 docs in `knowledge/`, six topics in each of US, MX, SV and ES plus four for all (#82); the market list is config (`knowledge/markets.yaml`), so adding a country is data, not code
 - [ ] Indexing job in GitHub Actions: clean, chunk by headings, metadata, e5 `passage:` embeddings, upsert by content hash
 - [ ] Index into the Neon `dev` branch first; promote to `main` only after checks pass
 - [ ] pgvector table plus HNSW index; market filter on every query, taken from the user's profile or a UI selector
