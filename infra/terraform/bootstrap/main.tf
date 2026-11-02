@@ -44,6 +44,7 @@ locals {
     "roles/bigquery.jobUser",
     "roles/artifactregistry.reader",
     "roles/run.invoker",
+    google_project_iam_custom_role.sign_in_email_sender.id,
   ]
 
   # Data Access audit logs for the APIs CI uses to log in, so every token exchange is recorded.
@@ -179,6 +180,15 @@ resource "google_project_iam_custom_role" "secret_container_admin" {
   ]
 }
 
+# Sends sign-in link emails and nothing else, for the API's /v1/sign-in-link (#72).
+# roles/firebaseauth.admin would also read, change and delete every user.
+resource "google_project_iam_custom_role" "sign_in_email_sender" {
+  role_id     = "signInEmailSender"
+  title       = "Sign-in email sender"
+  description = "Send Identity Platform sign-in emails, with no access to user accounts"
+  permissions = ["firebaseauth.users.sendEmail"]
+}
+
 resource "google_project_iam_member" "apply_secret_containers" {
   project = var.project_id
   role    = google_project_iam_custom_role.secret_container_admin.id
@@ -296,6 +306,10 @@ resource "google_identity_platform_config" "auth" {
     email {
       enabled           = true
       password_required = false # sign in with a one-time link sent by email
+    }
+
+    phone_number {
+      enabled = false # no SMS: it can bill, and it isn't free
     }
   }
 
