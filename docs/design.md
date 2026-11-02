@@ -130,6 +130,7 @@ down by stage.
 | --- | --- | --- | --- |
 | 1 | Edge | Turnstile token checked; the browser sends `traceparent` | M1 |
 | 2 | Identity | JWT validated on **every** call; no token means the anonymous tier | M1 |
+| 2b | Content safety | Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content. A blocked answer becomes a polite Spanish refusal that replaces anything already shown, and is recorded as outcome `blocked` with its categories, never the text. Violent requests are refused by the model itself; an input classifier is decided with the M4 safety set | M1 (live) |
 | 3 | Redaction | Presidio removes PII, including each market's ID numbers (SSN, CURP, cédula, DUI, DNI). Redaction events are logged by type, never by value | M3 |
 | 4 | Session | Recent turns loaded from the session store | M3 |
 | 5 | Retrieval | e5-small embeds the question (`query:` prefix); Neon returns 3 to 5 chunks, **always filtered by market** | M2 |
@@ -308,6 +309,7 @@ while the bill is $0.
 - **Public endpoint before Turnstile.** Anyone with the URL can use up the free Gemini quota.
   It can't cost money, because the key's project has no billing. Closed by Turnstile
   ([#22](https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/22)) and rate limits (M5).
+- **Content safety relies on Gemini's filter and the model's refusals.** Sexual and racist answers are blocked; violent requests are refused by the model, not the filter, and ratings vary from run to run. The M4 safety set measures this and decides on an input classifier (#65).
 - **Free-tier churn.** Models leave the free tier or close to new keys without notice. The
   adapter isolates it, and the M4 bakeoff reruns when models change.
 - **Shared Neon** is one failure point and one connection budget for three clouds. It's

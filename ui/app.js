@@ -15,6 +15,8 @@ const ERRORS = {
   turnstile_failed: "La verificación expiró. Inténtalo de nuevo.",
   turnstile_unavailable: "No pudimos verificar que eres una persona. Inténtalo en un momento.",
   model_unavailable: "El asistente no está disponible ahora. Inténtalo en un momento.",
+  content_blocked:
+    "No puedo ayudar con ese tipo de contenido. Puedo ayudarte con tus tarjetas, cuentas, pagos y otros temas del banco.",
 };
 
 let widgetId = null;

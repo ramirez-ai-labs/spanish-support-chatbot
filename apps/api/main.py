@@ -22,6 +22,7 @@ from core.bot_check import BotCheckFailed
 from core.chat import MAX_MESSAGE_CHARS, ChatService
 from core.identity import ANONYMOUS, Caller, InvalidToken, caller_for
 from core.ports import BotCheck, DeployProbe, IdentityProvider, LLMProvider, UsageSink
+from core.safety import ContentBlocked
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -263,6 +264,15 @@ def create_app(
             try:
                 async for delta in chat.reply(request.message):
                     yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+            except ContentBlocked as exc:
+                # The page replaces anything already shown with a polite refusal. Categories only,
+                # never the text.
+                logger.info(
+                    "content_blocked stage=%s categories=%s", exc.stage, ",".join(exc.categories)
+                )
+                span.set_attribute("chat.outcome", "blocked")
+                yield 'event: error\ndata: {"error": "content_blocked"}\n\n'
+                return
             except Exception as exc:
                 # Never echo provider errors or message text to the client or logs: provider
                 # messages can quote the request. Log only the error type and HTTP status code.

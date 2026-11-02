@@ -13,7 +13,9 @@ class LLMProvider(Protocol):
 
     The core only sees text; provider SDKs, keys and model settings stay inside the adapter. When
     `usage` is given, the adapter fills it with the provider's token counts by the end of the
-    stream; the core measures time and outcome and records the call through a UsageSink.
+    stream; the core measures time and outcome and records the call through a UsageSink. When the
+    provider's safety filters block the message or the answer, the stream raises
+    `core.safety.ContentBlocked`, even if some text was already streamed.
     """
 
     model: str  # model name, for traces and usage records
