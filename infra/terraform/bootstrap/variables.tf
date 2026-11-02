@@ -47,6 +47,12 @@ variable "github_repository_owner_id" {
   }
 }
 
+variable "ui_origin" {
+  description = "Origin of the chat page: the authorized domain for sign-in. Same as the gcp stack's ui_origin."
+  type        = string
+  default     = "https://spanish-support-chatbot.pages.dev"
+}
+
 variable "labels" {
   description = "Labels applied to every resource that supports them."
   type        = map(string)

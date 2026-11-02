@@ -313,31 +313,9 @@ resource "google_project_service" "apikeys" {
   disable_on_destroy = false
 }
 
-# Email-link (passwordless) sign-in only: no passwords to leak, and no SMS to pay for. Tier 1, so up
-# to 50,000 monthly active users are free. Its ID tokens are what the API's Firebase verifier already
-# checks (issuer https://securetoken.google.com/<project>). Note: Google creates this config once per
-# project and it can't be deleted, only changed.
-resource "google_identity_platform_config" "auth" {
-  sign_in {
-    allow_duplicate_emails = false
-
-    email {
-      enabled           = true
-      password_required = false # sign in with a one-time link sent by email
-    }
-  }
-
-  # Where a sign-in may start and be completed: the chat page, plus Google's defaults for local
-  # development and the project's own sign-in handler domains.
-  authorized_domains = [
-    trimprefix(var.ui_origin, "https://"),
-    "localhost",
-    "${var.project_id}.firebaseapp.com",
-    "${var.project_id}.web.app",
-  ]
-
-  depends_on = [google_project_service.identitytoolkit]
-}
+# The sign-in config itself (email link only, authorized domains) is in the bootstrap stack: creating
+# it the first time also adds Firebase to the project, which needs firebase.projects.update, and CI
+# isn't given that for a one-time step.
 
 # The chat page's browser key for the sign-in API. It's public by design (it's in the page), so it's
 # restricted instead: only the sign-in and token APIs, and only from the chat page and localhost.

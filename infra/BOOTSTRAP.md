@@ -401,6 +401,15 @@ settings, so no repo-admin token ever reaches it.
 
 A change made by hand in GitHub's settings shows up as drift in the next bootstrap `plan`.
 
+**The sign-in config is in the bootstrap stack too.** That's Identity Platform's email-link sign-in
+and its authorized domains. Creating it the first time also adds Firebase to the project, which
+needs `firebase.projects.update`, and CI isn't given that for a one-time step.
+
+**Planning the `gcp` stack locally?** Set a quota project first. With your own login (Application
+Default Credentials), the API Keys service needs to know which project to bill the call to; CI's
+service account doesn't. Run `export GOOGLE_CLOUD_QUOTA_PROJECT="$GCP_PROJECT_ID"`, or in PowerShell
+`$env:GOOGLE_CLOUD_QUOTA_PROJECT = $env:GCP_PROJECT_ID`.
+
 **How infrastructure changes flow** ([`.github/workflows/terraform.yml`](../.github/workflows/terraform.yml)):
 
 | When | Job | Logs in as |
