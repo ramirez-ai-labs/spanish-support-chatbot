@@ -251,6 +251,7 @@ export MIGRATIONS_DATABASE_URL="$(gcloud secrets versions access latest \
   --secret neon-owner-url --project "$GCP_PROJECT_ID")"
 uv run python migrations/migrate.py --status   # read-only: what's applied and pending
 uv run python migrations/migrate.py            # apply what's pending
+uv run python migrations/grants.py             # read-only: each app role's privileges
 unset MIGRATIONS_DATABASE_URL
 ```
 
