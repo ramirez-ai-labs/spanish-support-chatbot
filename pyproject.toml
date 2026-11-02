@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 gcp = [
     "opentelemetry-exporter-gcp-trace>=1.15.0",
+    "google-auth[requests]>=2.62", # the runtime account's token for Identity Platform (#72)
 ]
 
 [dependency-groups]

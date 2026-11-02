@@ -982,6 +982,7 @@ dependencies = [
 
 [package.optional-dependencies]
 gcp = [
+    { name = "google-auth", extra = ["requests"] },
     { name = "opentelemetry-exporter-gcp-trace" },
 ]
 
@@ -997,6 +998,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.162" },
+    { name = "google-auth", extras = ["requests"], marker = "extra == 'gcp'", specifier = ">=2.62" },
     { name = "google-genai", specifier = ">=2.34" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "opentelemetry-api", specifier = ">=1.45.2" },

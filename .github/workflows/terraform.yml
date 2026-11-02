@@ -254,6 +254,13 @@ jobs:
             echo "::error::A message without a Turnstile token was not refused with 403: the bot check is not live."
             exit 1
           fi
+          # The same for sign-in links: no Turnstile token, no email (the address is synthetic).
+          signin="$(curl -s --max-time 10 -w ' %{http_code}' -H 'Content-Type: application/json' \
+            -d '{"email": "smoke@example.com"}' "$url/v1/sign-in-link")"
+          if [ "$signin" != '{"error":"turnstile_required"} 403' ]; then
+            echo "::error::A sign-in link request without a Turnstile token was not refused with 403."
+            exit 1
+          fi
           # One real question through Gemini, as the deploy probe (which skips the bot check): the
           # stream must carry text and end with "done".
           reply="$(curl -sN --max-time 90 -H 'Content-Type: application/json' -H "X-Deploy-Probe: $PROBE" \
@@ -266,7 +273,7 @@ jobs:
             echo "::error::Chat stream was incomplete: no text, or no final done event (timeout or cut connection)."
             exit 1
           fi
-          echo "Smoke test passed: /health ok, forged token and missing bot check refused, and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
+          echo "Smoke test passed: /health ok, forged token and missing bot checks (chat, sign-in link) refused, and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
       - name: Deploy the chat page to Cloudflare Pages
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
