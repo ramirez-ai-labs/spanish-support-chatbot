@@ -39,6 +39,9 @@ The full table, with the milestone that delivers each requirement, is in the
 The client, guardrails, orchestration, model and knowledge layers are shared by every cloud.
 Identity, serving, sessions, telemetry and secrets are native to each cloud, behind adapters.
 
+The diagram below is the **target design** across all milestones. What runs today is in
+[3.1](#31-live-system-today) and [3.2](#32-data-flow-and-trust-boundaries).
+
 ```mermaid
 flowchart TB
     user["Customer browser"]
@@ -79,6 +82,107 @@ flowchart TB
 
 The per-cloud mapping of every layer is in the [roadmap](roadmap.md#architecture-decisions).
 
+### 3.1 Live system today
+
+Only what is deployed and running, as of `v0.1.1`. Presidio, sessions, retrieval and tools are
+not built yet.
+
+```mermaid
+flowchart LR
+    visitor["Visitor's browser"]
+
+    subgraph cf["Cloudflare"]
+        pages["Pages: chat page, CSP headers"]
+        turnstile["Turnstile: widget and siteverify"]
+    end
+
+    subgraph gcp["Google Cloud project"]
+        run["Cloud Run API, as chatbot-run<br/>/v1/chat and /v1/sign-in-link"]
+        idp["Identity Platform<br/>email-link sign-in"]
+        secrets["Secret Manager<br/>Gemini key, Turnstile secret,<br/>usage_writer URL"]
+        obs["Cloud Trace and Logging"]
+    end
+
+    gemini["Gemini 3.5 Flash-Lite<br/>AI Studio free tier"]
+    neon["Neon Postgres, AWS us-east-1<br/>llm_usage, model_prices"]
+
+    visitor -- "loads page" --> pages
+    visitor -- "solves challenge" --> turnstile
+    visitor -- "HTTPS, CORS: page origin only" --> run
+    visitor -- "complete sign-in, refresh token<br/>browser key, 2 methods only" --> idp
+    run -- "verify token" --> turnstile
+    run -- "verify ID tokens: public keys" --> idp
+    run -- "send sign-in email, OAuth<br/>signInEmailSender role" --> idp
+    run -- "one streamed call" --> gemini
+    run -- "INSERT only, usage_writer" --> neon
+    run -- "spans and JSON logs" --> obs
+    secrets -. "read at startup" .-> run
+```
+
+### 3.2 Data flow and trust boundaries
+
+Every arrow says what crosses the boundary. The rule behind them: **data goes only where it is
+needed to answer, and telemetry gets sizes, timings and reason codes, never content.**
+
+```mermaid
+flowchart LR
+    subgraph device["Visitor's device: untrusted"]
+        page["Chat page"]
+        store[("sessionStorage: ID and refresh tokens<br/>localStorage: email a link was sent to")]
+    end
+
+    subgraph api["API trust boundary: Cloud Run"]
+        checks["Token check, then bot check"]
+        core["Chat service"]
+        signin["Sign-in link sender"]
+    end
+
+    subgraph processors["Processors"]
+        gemini["Gemini"]
+        cfv["Turnstile siteverify"]
+        idp["Identity Platform"]
+    end
+
+    subgraph ours["Our stores"]
+        neon[("Neon llm_usage")]
+        obs[("Cloud Trace and Logging")]
+    end
+
+    page <--> store
+    page -- "message text, Turnstile token,<br/>ID token, traceparent" --> checks
+    page -- "email address, Turnstile token" --> checks
+    checks -- "Turnstile token only" --> cfv
+    checks -- "message text only:<br/>the token stops here" --> core
+    checks -- "email address only" --> signin
+    core -- "system prompt and message text" --> gemini
+    gemini -- "streamed answer" --> core
+    core -- "streamed answer" --> page
+    signin -- "email address, fixed return URL" --> idp
+    idp -- "email with one-time link" --> page
+    page -- "one-time code, refresh token" --> idp
+    core -- "token counts, model, purpose,<br/>latency, outcome, trace ID: no text" --> neon
+    api -- "sizes, timings, tier, outcome,<br/>reason codes, error types: no text" --> obs
+```
+
+| Data | Goes to | Never goes to |
+| --- | --- | --- |
+| Message text | The API, then Gemini | Spans, logs, usage rows. It isn't stored: there are no sessions until M3 |
+| ID token | The API, which verifies it and keeps only `sub`, `auth_time` and the tier | The model, logs, spans |
+| Refresh token | The page's `sessionStorage` and Google's token endpoint | The API |
+| Email address | The API, then Identity Platform, which sends the link and keeps the account | Logs, spans, error replies, usage rows |
+| Turnstile token | The API, then Cloudflare's siteverify; it works once | Logs, spans |
+| Usage row | Neon, through the insert-only `usage_writer` role | It has no text, user ID or email |
+| Secrets | Secret Manager, read by `chatbot-run` at startup | Terraform state, CI logs, the repo |
+
+Two consequences shape the rest of the design:
+
+- **Gemini sees the message text.** On the free tier, Google may use prompts and answers to
+  improve its products, which is one reason every document, test and eval in this project is
+  synthetic. M3 adds Presidio before the model call, so PII is redacted before it leaves the API.
+- **The device is untrusted.** Anything the page holds (tokens, the pending email) can be read
+  by a script on the page, which is why the CSP allows scripts only from the page itself and
+  Turnstile, and why the browser key can do nothing but complete a sign-in.
+
 **Rules that keep it portable** (enforced in CI, not just documented):
 
 - `core/` never imports a cloud SDK, the web framework or the adapters (`import-linter`).
@@ -94,6 +198,31 @@ anonymous `POST /v1/chat` reaches Cloud Run, the core adds a fixed Spanish
 system prompt, and one Gemini call streams the answer back as server-sent events (`data:` deltas,
 then `event: done`). On a provider failure the client gets a generic `model_unavailable` event, and
 the log records only the error type and status code.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor V as Visitor
+    participant P as Chat page
+    participant T as Turnstile
+    participant A as API on Cloud Run
+    participant G as Gemini
+    participant N as Neon
+    participant O as Cloud Trace
+
+    V->>P: types a question, presses Enviar
+    P->>T: execute the widget
+    T-->>P: fresh single-use token
+    P->>A: POST /v1/chat with message, Turnstile token, traceparent, optional Bearer token
+    A->>A: token check: anonymous, signed in or step-up, else 401
+    A->>T: siteverify the Turnstile token
+    T-->>A: success and hostname, else 403, or 503 if unreachable
+    A->>G: one streamed call: system prompt and message
+    G-->>A: answer chunks, or a safety block
+    A-->>P: SSE data deltas, then event done or error
+    A->>N: one llm_usage row, after the stream
+    A->>O: request span and chat.model span, flushed before the request ends
+```
 
 Each request is one trace in Cloud Trace:
 - **`POST /v1/chat`** continues the browser's `traceparent`. It records the method, the route, the
@@ -202,6 +331,34 @@ port.
   2. The link brings the user back to the page.
   3. The page exchanges the code for an ID token.
   4. Each message then carries `Authorization: Bearer` with that token.
+
+  ```mermaid
+  sequenceDiagram
+      autonumber
+      actor V as Visitor
+      participant P as Chat page
+      participant T as Turnstile
+      participant A as API on Cloud Run
+      participant I as Identity Platform
+      participant M as Visitor's inbox
+
+      V->>P: enters an email, asks for a link
+      P->>T: execute the widget
+      T-->>P: fresh single-use token
+      P->>A: POST /v1/sign-in-link with email and Turnstile token
+      A->>T: siteverify the token
+      T-->>A: success, else 403 and no email
+      A->>I: sendOobCode as chatbot-run, return URL fixed to the chat page
+      I->>M: email with a one-time link
+      A-->>P: 202 sent
+      V->>M: opens the link in the same browser
+      M->>P: back to the chat page with a one-time code
+      P->>I: signInWithEmailLink with the browser key
+      I-->>P: ID token for 1 hour and a refresh token
+      P->>P: keeps both in sessionStorage
+      Note over P,A: every message now carries Authorization Bearer, step-up for 5 minutes
+      P->>I: refreshes the ID token before it expires
+  ```
 
   Details:
   - **Tiers:** a fresh sign-in is the step-up tier for 5 minutes, then signed in.
