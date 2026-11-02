@@ -266,14 +266,28 @@ connection string in its own secret without printing it. Run it again to rotate 
 
 ```bash
 bash infra/scripts/neon-role-password.sh usage_writer   # -> neon-usage-writer-url
+bash infra/scripts/neon-role-password.sh app_gcp        # -> neon-app-gcp-url
+bash infra/scripts/neon-role-password.sh indexer        # -> neon-indexer-url
 ```
+
+The secret's container must exist first (the `gcp` stack creates it), and the code that reads it
+lands only after the value is in.
 
 | Role | Can | Secret | Read by |
 | --- | --- | --- | --- |
 | `chatbot_owner` | everything (Neon admin role); migrations only | `neon-owner-url` | you |
 | `usage_writer` | `INSERT` into `llm_usage`, nothing else | `neon-usage-writer-url` | `chatbot-run` |
+| `app_gcp` | `SELECT` on `chunks`, nothing else | `neon-app-gcp-url` | `chatbot-run` |
+| `indexer` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on `chunks`, nothing else | `neon-indexer-url` | `indexer-ci` |
+
+`indexer-ci` is the knowledge indexing workflow's account (ADR 0007). Google trusts it only for
+`.github/workflows/index.yml` running from `main`, through the `workflow` attribute (the token's
+`job_workflow_ref`), so no other workflow, branch or pull request can use it. Its email goes in the
+Actions secret `GCP_INDEXER_SA` (bootstrap output `indexer_service_account`).
 
 - [x] M1: migrations 0001–0002 applied; `usage_writer` password set (2026-11-01)
+- [x] M2: migration 0004 applied (2026-11-02)
+- [ ] M2: `app_gcp` and `indexer` passwords set; `GCP_INDEXER_SA` added (#84)
 
 ## 5. Run the bootstrap stack (locally, once per cloud)
 

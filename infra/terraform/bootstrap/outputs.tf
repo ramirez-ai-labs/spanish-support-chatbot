@@ -20,3 +20,8 @@ output "apply_service_account" {
   description = "Account for applies and deploys from main. Actions secret: GCP_APPLY_SA."
   value       = google_service_account.apply.email
 }
+
+output "indexer_service_account" {
+  description = "Account for the knowledge indexing workflow. Actions secret: GCP_INDEXER_SA."
+  value       = google_service_account.indexer.email
+}
