@@ -12,6 +12,7 @@ record that links back.
 | [0004](0004-serverless-containers-not-kubernetes.md) | Serverless containers instead of Kubernetes | Accepted |
 | [0005](0005-something-runs-every-day.md) | Something runs every day: incremental delivery | Accepted |
 | [0006](0006-neon-outside-terraform.md) | Neon is created by a script, and its roles live in SQL migrations | Accepted |
+| [0007](0007-rag-design.md) | Retrieval: multilingual e5 in the container, heading chunks, a market filter the port enforces | Accepted |
 
 ## Template
 

@@ -163,7 +163,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 
 ### M2 · RAG and indexing pipeline (Nov 16–29)
 
-Done when: answers cite the right market's policy chunk, starting with three markets: US, Mexico and one Central or South American country.
+Done when: answers cite the right market's policy chunk, starting with three markets: US, Mexico and Colombia. The design is [ADR 0007](adr/0007-rag-design.md).
 
 **Demo:** the same question as a US customer and a Mexican customer gets different answers, each with sources.
 
