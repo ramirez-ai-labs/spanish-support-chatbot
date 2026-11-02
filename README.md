@@ -8,9 +8,16 @@ The goal is to show full system design, not just a chatbot: identity tiers, PII 
 eval gate in CI, tracing, cost tracking, and the same app running natively on GCP, Azure and AWS,
 all on free tiers with synthetic data only.
 
-**Status:** M1, walking skeleton on GCP. The bot is live on Cloud Run, deployed from CI after an
-approval, with one trace per request in Cloud Trace. Sign-in, usage tracking and the chat UI are
-next. M0 (local bot, CI, guardrails) shipped as
+**Status:** M1, walking skeleton on GCP. Try it at https://spanish-support-chatbot.pages.dev:
+- **Behind the page:** the chat page on Cloudflare Pages calls the API on Cloud Run.
+- **Deploys:** both are deployed from CI after an approval.
+- **On every message:**
+  - a bot check
+  - Gemini's content filters
+  - one trace from the browser to the model
+  - one usage row with its shadow cost
+
+Sign-in is next. M0 (local bot, CI, guardrails) shipped as
 [`v0.0.1`](https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.0.1).
 
 ## Run it locally

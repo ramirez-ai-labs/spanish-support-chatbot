@@ -16,16 +16,18 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 
 ## Current status
 
-M1 in progress (M0 shipped as `v0.0.1`). The repo has:
+M1 in progress (M0 shipped as `v0.0.1`); its "done when" is met, with sign-in (#63) and GitHub
+settings as code (#21) left before `v0.1.0`. Live today:
 
-- the bot (`core/`, `adapters/shared/`, `adapters/gcp/`, `apps/api/`), with tracing to Cloud Trace
-- `docs/design.md` and five ADRs
-- the GCP bootstrap stack (`infra/terraform/bootstrap/`: state bucket, keyless CI login, gated
-  plan/apply accounts)
-- the `gcp` stack (Artifact Registry, the Gemini key secret, Cloud Run)
+- the chat page on Cloudflare Pages (Turnstile, browser-started traces) calling the API on Cloud Run
+- on every call: the token check (anonymous tier until sign-in), the bot check, Gemini's content
+  filters, one trace in Cloud Trace, and one usage row in Neon with its shadow cost
+- the stacks: `bootstrap` (applied locally), `gcp` and `shared` (Cloudflare), applied by CI;
+  Neon is scripted, with roles and grants in `migrations/` (ADR 0006)
+- six ADRs, `docs/design.md`, and contract suites for every port
 
-The bot is live on Cloud Run. The `tf-apply` job in `terraform.yml` applies, builds, deploys and
-smoke tests after the `prod` approval. Before starting work, check the active milestone and its issues (`gh issue list --milestone ...`) and stay
+The `tf-apply` job in `terraform.yml` applies both stacks, builds, deploys the API and the page,
+and smoke tests them, after the `prod` approval. Before starting work, check the active milestone and its issues (`gh issue list --milestone ...`) and stay
 inside their scope. Don't build ahead into later milestones unless asked.
 
 **Working rule: something runs every day.** The whole system is designed up front, but it's built
@@ -128,6 +130,11 @@ evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,d
   the project comes from `infra/scripts/neon-bootstrap.sh`, roles and grants from SQL migrations, and
   passwords go straight into Secret Manager. The Neon API key never goes into CI.
 - Containers: one slim multi-stage image per cloud, models baked in. No Kubernetes (see ADR).
+- **Ordering for anything the code depends on: it lands and is applied before the code that uses
+  it.** A migration gets its own PR and is applied (`migrations/migrate.py`) before the PR whose
+  code reads or writes the new schema is deployed; a secret's container, then its value, then the
+  code that references it. CI can't run migrations (it has no database owner credentials), so the
+  PR order is the safeguard.
 - Major design choices get an ADR in `docs/adr/`. Update `docs/design.md` when architecture changes.
 - Eval code from `rag-evaluation-lab` and `chatbot-evaluation-system` is installed from pinned git
   tags — don't vendor or copy it.

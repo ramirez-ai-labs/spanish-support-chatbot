@@ -147,14 +147,14 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 
 - [x] Bootstrap Terraform run locally, GCP only: GCS state bucket and GitHub OIDC trust for GCP
 - [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile. The Neon project in AWS US East 1 comes from `infra/scripts/neon-bootstrap.sh`, and its roles (`indexer`, `app_gcp`, `usage_writer`) and pgvector come from SQL migrations with #20 ([ADR 0006](adr/0006-neon-outside-terraform.md)); the `dev` branch comes with M2 indexing
-- [ ] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Firestore, Secret Manager, BigQuery dataset, budget (Cloud Run, Artifact Registry and Secret Manager done; BigQuery comes with usage events, Firestore with sessions; the budget stays manual)
+- [x] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Secret Manager. Firestore moved to M3 with sessions, BigQuery to M5 with turn-level logs (usage events live in Neon); the budget stays manual
 - [x] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
 - [x] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
-- [ ] Slim multi-stage Docker image with a size budget; Trivy image and CodeQL scans in CI. Models are baked in when first used: e5 in M2 (#50), Presidio in M3 (#51)
-- [ ] Firebase Auth email sign-in; JWT validation behind the `IdentityProvider` adapter; no token = anonymous tier
+- [x] Slim multi-stage Docker image with a size budget; Trivy image and CodeQL scans in CI. Models are baked in when first used: e5 in M2 (#50), Presidio in M3 (#51)
+- [ ] Firebase Auth email sign-in (#63); JWT validation behind the `IdentityProvider` adapter and no token = anonymous tier are done (#18)
 - [x] `ToolProvider` port in `core/` with an in-process adapter, so tools can later move behind MCP without changing the agent
-- [ ] Contract test suite started: every adapter for a port must pass the same tests
-- [ ] Chat UI on Cloudflare Pages: streaming, `traceparent` header, Turnstile, Web Analytics
+- [x] Contract test suite started: every adapter for a port must pass the same tests
+- [x] Chat UI on Cloudflare Pages: streaming, `traceparent` header, Turnstile (Web Analytics moved to M5, #64)
 - [x] OpenTelemetry in the API, exporting to Cloud Trace and Cloud Logging
 - [x] `migrations/` for `llm_usage` and `model_prices`; usage event in `LLMProvider` with tokens, model, `purpose`, `prompt_parts`, latency; async write
 - [x] CI deploy via Workload Identity Federation, post-deploy smoke test

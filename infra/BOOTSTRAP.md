@@ -254,6 +254,11 @@ uv run python migrations/migrate.py            # apply what's pending
 unset MIGRATIONS_DATABASE_URL
 ```
 
+**Apply a migration before deploying code that uses it.** Migrations get their own PR. Merge it, run
+`migrate.py`, and only then merge and deploy the code that reads or writes the new schema. Deploying
+first means the app writes a column that doesn't exist yet: the write fails, and the row is lost.
+(This happened once with `0003`: one usage row was lost, and the chat itself was unaffected.)
+
 When a migration adds an app role, give it a password. The script generates one, sets it over the
 owner's TLS connection (Neon accepts only plain passwords, not SCRAM hashes), and stores the role's
 connection string in its own secret without printing it. Run it again to rotate (then redeploy):
