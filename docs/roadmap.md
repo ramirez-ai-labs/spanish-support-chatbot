@@ -171,7 +171,7 @@ Done when: answers cite the right market's policy chunk, starting with four mark
 - [x] 20 to 40 synthetic Spanish FAQ and policy docs, tagged by market or all: 28 docs in `knowledge/`, six topics in each of US, MX, SV and ES plus four for all (#82); the market list is config (`knowledge/markets.yaml`), so adding a country is data, not code
 - [ ] Indexing job in GitHub Actions: clean, chunk by headings, metadata, e5 `passage:` embeddings, upsert by content hash
 - [ ] Index into the Neon `dev` branch first; promote to `main` only after checks pass
-- [ ] pgvector table plus HNSW index; market filter on every query, taken from the user's profile or a UI selector
+- [x] pgvector table plus HNSW index (#92); market filter on every query, enforced by the `KnowledgeStore` port and proven by its contract suite (#87); the market comes from a UI selector (#89), and from the user's profile in M3
 - [ ] e5 embedder in the API container with the `query:` prefix, baked into the image at build time (#50); citations shown in the UI
 
 ### M3 · Guardrails, agent and access control (Nov 30–Dec 13)

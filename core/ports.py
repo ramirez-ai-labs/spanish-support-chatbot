@@ -7,8 +7,9 @@ from core.identity import Caller, VerifiedToken
 from core.tools import ToolResult, ToolSpec
 from core.usage import LLMUsage, TokenUsage
 
-if TYPE_CHECKING:  # core.indexing imports this module
+if TYPE_CHECKING:  # core.indexing and core.retrieval import this module
     from core.indexing import StoredChunk
+    from core.retrieval import RetrievedChunk
 
 
 class LLMProvider(Protocol):
@@ -55,6 +56,20 @@ class ChunkStore(Protocol):
     def content_hashes(self) -> set[str]: ...
 
     def apply(self, insert: Sequence["StoredChunk"], delete: Collection[str]) -> None: ...
+
+
+class KnowledgeStore(Protocol):
+    """Finds the chunks nearest to a query vector, in the given markets only (ADR 0007).
+
+    `markets` is the visitor's market plus `all`; every adapter must return chunks from those
+    markets and no others, and refuse an empty list. That's the correctness boundary for M2, and
+    the contract suite checks it. Only vectors from `model` are compared. Results are sorted by
+    cosine similarity, highest first, at most `k` of them.
+    """
+
+    def search(
+        self, vector: Sequence[float], markets: Sequence[str], k: int, model: str
+    ) -> list["RetrievedChunk"]: ...
 
 
 class UsageSink(Protocol):
