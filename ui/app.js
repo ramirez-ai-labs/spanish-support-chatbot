@@ -18,6 +18,9 @@ const ERRORS = {
   turnstile_required: "Completa la verificación antes de enviar.",
   turnstile_failed: "La verificación expiró. Inténtalo de nuevo.",
   turnstile_unavailable: "No pudimos verificar que eres una persona. Inténtalo en un momento.",
+  invalid_email: "Ese correo no es válido.",
+  too_many_attempts: "Demasiados intentos. Inténtalo más tarde.",
+  sign_in_unavailable: "No pudimos enviar el enlace. Inténtalo en un momento.",
   model_unavailable: "El asistente no está disponible ahora. Inténtalo en un momento.",
   invalid_token: "Tu sesión expiró. Inicia sesión de nuevo o continúa sin sesión.",
   content_blocked:
@@ -154,6 +157,21 @@ async function currentIdToken() {
   return data.id_token;
 }
 
+// The API sends the link, after the same bot check as chat, so the page's key can't send email.
+async function sendSignInLink(email) {
+  const token = await freshTurnstileToken();
+  if (!token) throw new Error(ERRORS.turnstile_required);
+  const response = await fetch(`${config.apiUrl}/v1/sign-in-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "CF-Turnstile-Response": token },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(ERRORS[body.error] || "No pudimos enviar el enlace. Inténtalo de nuevo.");
+  }
+}
+
 function setUpSignIn() {
   if (!config.signInApiKey) return; // local runs: no sign-in, anonymous tier
   document.getElementById("account").hidden = false;
@@ -164,12 +182,7 @@ function setUpSignIn() {
     const button = document.getElementById("send-link");
     button.disabled = true;
     try {
-      await identityToolkit("sendOobCode", {
-        requestType: "EMAIL_SIGNIN",
-        email,
-        continueUrl: location.origin + location.pathname,
-        canHandleCodeInApp: true,
-      });
+      await sendSignInLink(email);
       localStorage.setItem(PENDING_EMAIL, email);
       renderAccount(`Te enviamos un enlace a ${email}. Ábrelo en este navegador.`);
     } catch (err) {

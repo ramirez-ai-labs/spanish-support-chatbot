@@ -73,6 +73,17 @@ class BotCheck(Protocol):
     def verify(self, token: str | None) -> None: ...
 
 
+class SignInLinkSender(Protocol):
+    """Emails a one-time sign-in link. The API calls it only after the bot check passes.
+
+    The link always returns to the chat page: the adapter's config sets where, never the caller.
+    Raises `core.sign_in.SignInLinkFailed` with a reason code, and fails closed when the provider
+    is unreachable. Implementations never log the address.
+    """
+
+    def send(self, email: str) -> None: ...
+
+
 class DeployProbe(Protocol):
     """Recognizes the deploy pipeline's own signed identity, which may skip the bot check.
 

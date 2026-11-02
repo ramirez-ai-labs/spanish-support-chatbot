@@ -196,7 +196,9 @@ port.
   customers, and the MCP adapter (M9) has to pass the same contract suite.
 - **Signing in is email-link only** (Identity Platform, the engine behind Firebase Auth), so
   there are no passwords and no SMS:
-  1. The page asks Google to email a one-time link.
+  1. The page asks the API for a one-time link. The API checks Turnstile, then has Identity
+     Platform email it, as the runtime account with a role that can only send sign-in emails.
+     The link always returns to the chat page.
   2. The link brings the user back to the page.
   3. The page exchanges the code for an ID token.
   4. Each message then carries `Authorization: Bearer` with that token.
@@ -330,11 +332,9 @@ while the bill is $0.
   It can't cost money, because the key's project has no billing. Closed by Turnstile
   ([#22](https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/22)) and rate limits (M5).
 - **Content safety relies on Gemini's filter and the model's refusals.** Sexual and racist answers are blocked; violent requests are refused by the model, not the filter, and ratings vary from run to run. The M4 safety set measures this and decides on an input classifier (#65).
-- **Sign-in emails aren't behind the bot check.** The page asks Google directly to send the link,
-  so Turnstile can't gate it, and someone could trigger sign-in emails to addresses they don't own.
-  Google rate-limits the sign-in API, and the browser key works only from the chat page's origin.
-  Sending the request through the API, behind Turnstile and our own rate limits, belongs with M5's
-  hardening.
+- **Sign-in emails share one sender.** Since #72 every link is sent by the API, so all visitors
+  share the project's sign-in email limits. Turnstile keeps bulk requests out, and M5's rate
+  limits add a per-visitor cap.
 - **Free-tier churn.** Models leave the free tier or close to new keys without notice. The
   adapter isolates it, and the M4 bakeoff reruns when models change.
 - **Shared Neon** is one failure point and one connection budget for three clouds. It's

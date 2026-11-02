@@ -21,8 +21,16 @@ from pydantic import BaseModel, Field
 from core.bot_check import BotCheckFailed
 from core.chat import MAX_MESSAGE_CHARS, ChatService
 from core.identity import ANONYMOUS, Caller, InvalidToken, caller_for
-from core.ports import BotCheck, DeployProbe, IdentityProvider, LLMProvider, UsageSink
+from core.ports import (
+    BotCheck,
+    DeployProbe,
+    IdentityProvider,
+    LLMProvider,
+    SignInLinkSender,
+    UsageSink,
+)
 from core.safety import ContentBlocked
+from core.sign_in import MAX_EMAIL_CHARS, SignInLinkFailed, looks_like_email
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -30,6 +38,14 @@ tracer = trace.get_tracer(__name__)
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
+
+
+class SignInLinkRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=MAX_EMAIL_CHARS)
+
+
+# Status codes for the refusals the API returns before doing any work.
+SIGN_IN_STATUS = {"invalid_email": 400, "too_many_attempts": 429, "sign_in_unavailable": 503}
 
 
 def build_llm() -> LLMProvider:
@@ -102,6 +118,20 @@ def build_identity() -> IdentityProvider | None:
     raise ValueError(f"Unknown IDENTITY_PROVIDER: {provider!r} (expected 'firebase' or 'none')")
 
 
+def build_sign_in() -> SignInLinkSender | None:
+    """Pick who sends sign-in links from SIGN_IN_SENDER; none by default (tests, local runs)."""
+    sender = os.environ.get("SIGN_IN_SENDER", "none")
+    if sender == "none":
+        return None
+    if sender == "identity_platform":
+        from adapters.gcp.identity_platform_sign_in import IdentityPlatformSignInLinkSender
+
+        return IdentityPlatformSignInLinkSender(
+            os.environ["GOOGLE_CLOUD_PROJECT"], os.environ["SIGN_IN_CONTINUE_URL"]
+        )
+    raise ValueError(f"Unknown SIGN_IN_SENDER: {sender!r} (expected 'identity_platform' or 'none')")
+
+
 def build_tracing() -> Callable[[], None] | None:
     """Pick the span exporter from TRACE_EXPORTER; tracing stays a no-op when it is unset."""
     exporter = os.environ.get("TRACE_EXPORTER", "none")
@@ -132,6 +162,7 @@ def create_app(
     bot_check: BotCheck | None = None,
     deploy_probe: DeployProbe | None = None,
     origins: list[str] | None = None,
+    sign_in: SignInLinkSender | None = None,
 ) -> FastAPI:
     if llm is None:
         llm = build_llm()
@@ -141,6 +172,7 @@ def create_app(
         bot_check = build_bot_check()
         deploy_probe = build_deploy_probe()
         origins = allowed_origins()
+        sign_in = build_sign_in()
     chat = ChatService(llm, usage=usage, cloud=os.environ.get("CLOUD", "local"))
 
     def identify(authorization: str | None) -> Caller:
@@ -163,6 +195,28 @@ def create_app(
             raise InvalidToken("no_deploy_probe")
         deploy_probe.verify(header)
         return True
+
+    def check_bot(token: str | None) -> tuple[str, int] | None:
+        """The bot check's refusal as (reason, status), or None when it passes."""
+        if bot_check is None:
+            return None
+        try:
+            bot_check.verify(token)
+        except BotCheckFailed as exc:
+            return exc.reason, 503 if exc.reason == "turnstile_unavailable" else 403
+        return None
+
+    def end_rejected(span: trace.Span, reason: str, status: int) -> None:
+        span.set_attributes(
+            {
+                "chat.outcome": "rejected",
+                "auth.rejected_reason": reason,
+                "http.response.status_code": status,
+            }
+        )
+        span.end()  # a 4xx is the client's error, so the span status stays unset
+        if flush_traces is not None:
+            flush_traces()  # handlers run in a worker thread, so blocking is fine
 
     # FastAPI's built-in telemetry is off. Its request span ends after the response is sent,
     # when serverless CPU is already throttled, so it would miss the flush below, and its logs
@@ -213,28 +267,17 @@ def create_app(
             try:
                 caller = identify(http.headers.get("authorization"))
                 probe = is_deploy_probe(http.headers.get("x-deploy-probe"))
-                if bot_check is not None and not probe:
-                    bot_check.verify(http.headers.get("cf-turnstile-response"))
+                if not probe:
+                    rejection = check_bot(http.headers.get("cf-turnstile-response"))
             except InvalidToken as exc:
                 rejection = (exc.reason, 401)
-            except BotCheckFailed as exc:
-                rejection = (exc.reason, 503 if exc.reason == "turnstile_unavailable" else 403)
             if rejection is not None:
                 # The reason code only: never a token or its claims. Logged inside the span,
                 # so Cloud Logging links the line to this request's trace.
                 logger.info("request_rejected reason=%s", rejection[0])
         if rejection is not None:
             reason, status = rejection
-            span.set_attributes(
-                {
-                    "chat.outcome": "rejected",
-                    "auth.rejected_reason": reason,
-                    "http.response.status_code": status,
-                }
-            )
-            span.end()  # a 4xx is the client's error, so the span status stays unset
-            if flush_traces is not None:
-                flush_traces()  # this handler runs in a worker thread, so blocking is fine
+            end_rejected(span, reason, status)
             if status == 401:
                 return JSONResponse(
                     {"error": "invalid_token"},
@@ -295,5 +338,40 @@ def create_app(
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    @app.post("/v1/sign-in-link")
+    def post_sign_in_link(request: SignInLinkRequest, http: Request) -> Response:
+        # Behind the same bot check as chat, so the page can't be used to email strangers in bulk.
+        # The address goes only to the sender: never on the span, in a log line or in a reply.
+        span = tracer.start_span(
+            "POST /v1/sign-in-link",
+            context=propagate.extract(http.headers),
+            kind=SpanKind.SERVER,
+            attributes={"http.request.method": "POST", "http.route": "/v1/sign-in-link"},
+        )
+        with trace.use_span(span, record_exception=False, set_status_on_exception=False):
+            rejection = check_bot(http.headers.get("cf-turnstile-response"))
+            if rejection is None and not looks_like_email(request.email):
+                rejection = ("invalid_email", 400)
+            if rejection is None:
+                try:
+                    if sign_in is None:
+                        raise SignInLinkFailed("sign_in_unavailable")
+                    sign_in.send(request.email)
+                except SignInLinkFailed as exc:
+                    rejection = (exc.reason, SIGN_IN_STATUS.get(exc.reason, 503))
+            if rejection is not None:
+                logger.info("request_rejected reason=%s", rejection[0])
+            else:
+                logger.info("sign_in_link_sent")
+        if rejection is not None:
+            reason, status = rejection
+            end_rejected(span, reason, status)
+            return JSONResponse({"error": reason}, status_code=status)
+        span.set_attributes({"chat.outcome": "sent", "http.response.status_code": 202})
+        span.end()
+        if flush_traces is not None:
+            flush_traces()
+        return JSONResponse({"status": "sent"}, status_code=202)
 
     return app

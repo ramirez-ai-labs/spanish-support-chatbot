@@ -186,3 +186,24 @@ def test_accepted_request_records_the_tier_and_status() -> None:
     assert attributes is not None
     assert attributes["auth.tier"] == "anonymous"
     assert attributes["http.response.status_code"] == 200
+
+
+def test_sign_in_link_is_one_span_without_the_address() -> None:
+    class Sender:
+        def send(self, email: str) -> None: ...
+
+    app = create_app(llm=MockLLM(), flush_traces=FLUSH, sign_in=Sender())
+    TestClient(app).post(
+        "/v1/sign-in-link",
+        json={"email": "ana.prueba@example.com"},
+        headers={"traceparent": f"00-{TRACE_ID}-{PARENT_SPAN_ID}-01"},
+    )
+
+    spans = spans_by_name()
+    assert set(spans) == {"POST /v1/sign-in-link"}
+    span = spans["POST /v1/sign-in-link"]
+    assert f"{span.context.trace_id:032x}" == TRACE_ID
+    assert span.attributes is not None
+    assert span.attributes["chat.outcome"] == "sent"
+    assert span.attributes["http.response.status_code"] == 202
+    assert "ana.prueba" not in str(span.attributes)

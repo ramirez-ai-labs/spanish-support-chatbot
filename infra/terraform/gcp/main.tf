@@ -152,6 +152,8 @@ resource "google_project_iam_member" "run" {
   for_each = toset([
     "roles/logging.logWriter",
     "roles/cloudtrace.agent", # write spans; always free up to 2.5M spans a month
+    # Send sign-in link emails, and nothing else (custom role from the bootstrap stack, #72).
+    "projects/${var.project_id}/roles/signInEmailSender",
   ])
 
   project = var.project_id
@@ -248,6 +250,16 @@ resource "google_cloud_run_v2_service" "api" {
             version = "latest"
           }
         }
+      }
+      env {
+        # /v1/sign-in-link sends the email as the runtime account, behind the bot check, and the
+        # link always returns to the chat page.
+        name  = "SIGN_IN_SENDER"
+        value = "identity_platform"
+      }
+      env {
+        name  = "SIGN_IN_CONTINUE_URL"
+        value = "${var.ui_origin}/"
       }
       env {
         # The deploy job's signed identity (tf-apply), which may skip the bot check so the smoke
