@@ -3,16 +3,20 @@
 An email address is personal data: it never goes in logs, spans or error messages.
 """
 
-import re
-
 MAX_EMAIL_CHARS = 254  # the longest address SMTP can deliver to
-
-# A shape check only, to refuse obvious typos before calling the provider; the provider decides.
-_EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 
 def looks_like_email(value: str) -> bool:
-    return len(value) <= MAX_EMAIL_CHARS and _EMAIL.fullmatch(value) is not None
+    """A shape check only, to refuse obvious typos before calling the provider; the provider
+    decides. String operations, not a regex, so the time stays linear in the input."""
+    local, at, domain = value.partition("@")
+    return (
+        len(value) <= MAX_EMAIL_CHARS
+        and bool(local and at)
+        and "@" not in domain
+        and "." in domain.strip(".")  # a dot inside the domain, not only at its ends
+        and not any(c.isspace() for c in value)
+    )
 
 
 class SignInLinkFailed(Exception):

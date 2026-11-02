@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from adapters.shared.mock_llm import MockLLM
 from apps.api.main import build_sign_in, create_app
 from core.bot_check import BotCheckFailed
-from core.sign_in import SignInLinkFailed
+from core.sign_in import SignInLinkFailed, looks_like_email
 
 EMAIL = "ana.prueba@example.com"  # synthetic
 
@@ -102,3 +102,30 @@ def test_sign_in_sender_choice(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SIGN_IN_SENDER", "nope")
     with pytest.raises(ValueError, match="Unknown SIGN_IN_SENDER"):
         build_sign_in()
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["ana.prueba@example.com", "a+b@sub.example.mx", "x@y.co"],
+)
+def test_email_shapes_that_pass(value: str) -> None:
+    assert looks_like_email(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "no-arroba.example.com",
+        "@example.com",
+        "ana@",
+        "ana@example",
+        "ana@.com",
+        "ana@example.",
+        "ana@@example.com",
+        "ana@ex ample.com",
+        "a" * 250 + "@x.co",  # over 254
+        "!@" + "!" * 5000,  # CodeQL's slow case for the old regex: refused at once
+    ],
+)
+def test_email_shapes_that_fail(value: str) -> None:
+    assert not looks_like_email(value)
