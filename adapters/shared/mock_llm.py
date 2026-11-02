@@ -2,7 +2,11 @@
 
 from collections.abc import AsyncIterator
 
+from core.safety import ContentBlocked
 from core.usage import TokenUsage
+
+# A message containing this is "blocked", so tests can exercise the refusal path without a model.
+MOCK_BLOCK = "[[mock-block]]"
 
 MOCK_REPLY = (
     "Para bloquear tu tarjeta, entra a la app del banco, abre la sección Tarjetas y elige "
@@ -19,6 +23,8 @@ class MockLLM:
     async def stream(
         self, system: str, user_message: str, usage: TokenUsage | None = None
     ) -> AsyncIterator[str]:
+        if MOCK_BLOCK in user_message:
+            raise ContentBlocked("output", ("TEST",))
         words = self._reply.split(" ")
         if usage is not None:  # deterministic stand-in counts: one token per word
             usage.input_tokens = len(system.split()) + len(user_message.split())

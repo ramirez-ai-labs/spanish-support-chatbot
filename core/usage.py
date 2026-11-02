@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 Purpose = Literal["chat", "eval", "index"]
-Outcome = Literal["done", "error", "incomplete"]
+Outcome = Literal["done", "error", "incomplete", "blocked"]
 
 
 @dataclass
@@ -33,3 +33,4 @@ class LLMUsage:
     ttft_ms: int | None
     outcome: Outcome
     trace_id: str | None
+    blocked_categories: tuple[str, ...] = ()  # safety categories, when outcome is "blocked"

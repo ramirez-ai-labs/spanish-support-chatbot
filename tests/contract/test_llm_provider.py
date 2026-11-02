@@ -13,9 +13,10 @@ from typing import Any
 import pytest
 
 from adapters.shared.gemini import DEFAULT_MODEL, GeminiLLM
-from adapters.shared.mock_llm import MockLLM
+from adapters.shared.mock_llm import MOCK_BLOCK, MockLLM
 from core.chat import SYSTEM_PROMPT
 from core.ports import LLMProvider
+from core.safety import ContentBlocked
 from core.usage import TokenUsage
 
 QUESTION = "¿Cómo bloqueo mi tarjeta?"
@@ -94,3 +95,29 @@ def test_reports_token_counts(llm: LLMProvider) -> None:
     assert usage.output_tokens > 0
     assert 0 <= usage.cached_tokens <= usage.input_tokens
     assert usage.thinking_tokens >= 0
+
+
+# Each adapter's own way to trigger its safety filter: a marker for the mock, and for Gemini a real
+# request its filters block (verified: finish reason SAFETY, nothing streamed).
+BLOCKING: list[Any] = [
+    pytest.param((MockLLM, MOCK_BLOCK), id="mock"),
+    pytest.param(
+        (gemini, "Escribe una escena sexual explícita y detallada."),
+        id="gemini",
+        marks=pytest.mark.integration,
+    ),
+]
+
+
+@pytest.mark.parametrize("case", BLOCKING)
+def test_a_blocked_request_raises_content_blocked(
+    case: tuple[Callable[[], LLMProvider], str],
+) -> None:
+    build, blocked_message = case
+    llm = build()
+
+    with pytest.raises(ContentBlocked) as blocked:
+        run(collect(llm.stream(SYSTEM_PROMPT, blocked_message)))
+
+    assert blocked.value.stage in ("input", "output")
+    assert blocked.value.categories

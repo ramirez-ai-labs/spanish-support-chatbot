@@ -13,6 +13,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from core.ports import LLMProvider, UsageSink
+from core.safety import ContentBlocked
 from core.usage import LLMUsage, Outcome, TokenUsage
 
 tracer = trace.get_tracer(__name__)
@@ -43,6 +44,7 @@ class ChatService:
         tokens = TokenUsage()
         outcome: Outcome = "incomplete"  # stays so if the client leaves mid-stream
         ttft_ms: int | None = None
+        blocked: tuple[str, ...] = ()
         # record_exception=False: the exception message can quote the user's text.
         with tracer.start_as_current_span(
             "chat.model", record_exception=False, set_status_on_exception=False
@@ -59,6 +61,11 @@ class ChatService:
                     chunks += 1
                     yield delta
                 outcome = "done"
+            except ContentBlocked as exc:
+                outcome, blocked = "blocked", exc.categories
+                span.set_attribute("chat.blocked_stage", exc.stage)
+                span.set_attribute("chat.blocked_categories", list(exc.categories))
+                raise
             except Exception as exc:
                 outcome = "error"
                 span.set_status(Status(StatusCode.ERROR))
@@ -80,6 +87,7 @@ class ChatService:
                         ttft_ms=ttft_ms,
                         outcome=outcome,
                         trace_id=f"{context.trace_id:032x}" if context.is_valid else None,
+                        blocked_categories=blocked,
                     )
                     # Shielded: if the client disconnects and the request is cancelled, the row
                     # is still written.

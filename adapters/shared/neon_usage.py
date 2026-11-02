@@ -21,8 +21,8 @@ WRITE_TIMEOUT_SECONDS = 10
 INSERT = """
 insert into llm_usage (
     cloud, model, purpose, prompt_parts, input_tokens, cached_tokens, output_tokens,
-    thinking_tokens, latency_ms, ttft_ms, outcome, trace_id
-) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    thinking_tokens, latency_ms, ttft_ms, outcome, trace_id, blocked_categories
+) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """  # no RETURNING: usage_writer can't read rows back
 
 
@@ -61,6 +61,7 @@ class NeonUsageSink:
                     usage.ttft_ms,
                     usage.outcome,
                     usage.trace_id,
+                    list(usage.blocked_categories),
                 ),
             )
 

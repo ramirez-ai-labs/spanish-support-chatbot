@@ -179,6 +179,7 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 
 **Demo:** a typed SSN is redacted; blocking a card is refused when anonymous and allowed after step-up.
 
+- [x] Content safety: Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content; a block becomes a polite refusal and is recorded by category, never with the text. Violent requests are refused by the model, not the filter: an input classifier is decided with the M4 safety set (#65)
 - [ ] Presidio with a Spanish model and ID patterns per market (US SSN, Mexico CURP, Colombia cédula, El Salvador DUI, Peru DNI), added as markets are added; the model is baked into the image at build time (#51)
 - [ ] PII handling: redact right after the token check; no request-body logging and no message text on spans before redaction; consistent placeholders for names (`<PERSON_1>`); scan model output too
 - [ ] Tools return masked data only (e.g., card ending 4417), never full numbers
@@ -202,6 +203,7 @@ Done when: a worse prompt, model or index fails CI, and eval cost is tracked sep
 
 **Demo:** a bad prompt change is blocked by CI; the bakeoff table shows why the model was chosen.
 
+- [ ] Spanish safety eval set (abuse, racism, sexual, violence, jailbreaks, regional slang, benign look-alikes) in the gate, and an ADR on adding an input classifier (#65)
 - [ ] Per-market test sets, about 50 questions each with expected sources, covering regional vocabulary (e.g., celular vs. móvil, cuenta de cheques vs. cuenta corriente)
 - [ ] Retrieval metrics from rag-evaluation-lab (pinned git tag): Recall@k, MRR
 - [ ] Answer quality via LLM-as-judge from chatbot-evaluation-system (pinned git tag), with a judge model different from the candidates
