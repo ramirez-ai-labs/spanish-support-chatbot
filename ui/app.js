@@ -25,6 +25,24 @@ const ERRORS = {
 };
 
 let widgetId = null;
+let pendingToken = null; // { resolve } while a Turnstile challenge runs for the next send
+
+// Tokens expire after 5 minutes and work once, so each send asks for a fresh one. The widget
+// renders in execute mode: nothing runs until here, and the checkbox only appears when
+// Cloudflare wants an interaction.
+function freshTurnstileToken() {
+  if (!window.turnstile || widgetId === null) return Promise.resolve("");
+  return new Promise((resolve) => {
+    pendingToken = { resolve };
+    window.turnstile.reset(widgetId);
+    window.turnstile.execute(widgetId);
+  });
+}
+
+function settleToken(token) {
+  pendingToken?.resolve(token);
+  pendingToken = null;
+}
 
 // --- sign-in --------------------------------------------------------------------------------------
 
@@ -189,16 +207,17 @@ function addTraceId(el, traceId) {
 }
 
 async function send(message) {
-  const token = window.turnstile && widgetId !== null ? window.turnstile.getResponse(widgetId) : "";
+  sendButton.disabled = true;
+  statusLine.textContent = "";
+  const token = await freshTurnstileToken();
   if (!token) {
     statusLine.textContent = ERRORS.turnstile_required;
+    sendButton.disabled = false;
     return;
   }
   addMessage("you", message);
   const reply = addMessage("bot", "…");
   const trace = newTraceparent();
-  sendButton.disabled = true;
-  statusLine.textContent = "";
 
   try {
     const headers = {
@@ -225,7 +244,6 @@ async function send(message) {
   } finally {
     addTraceId(reply, trace.traceId);
     sendButton.disabled = false;
-    window.turnstile?.reset(widgetId); // each token works once
   }
 }
 
@@ -283,5 +301,10 @@ window.addEventListener("load", () => {
     sitekey: config.turnstileSiteKey,
     language: "es",
     action: "chat",
+    execution: "execute",
+    appearance: "interaction-only",
+    callback: settleToken,
+    "error-callback": () => settleToken(""),
+    "timeout-callback": () => settleToken(""),
   });
 });
