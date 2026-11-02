@@ -20,6 +20,18 @@ jobs:
     env:
       # Tests and CI never call Gemini or need a key.
       LLM_PROVIDER: mock
+    services:
+      # Throwaway Postgres with Neon's pgvector, for the chunk store's contract tests.
+      db:
+        image: pgvector/pgvector:0.8.0-pg17
+        env:
+          # No password: a throwaway container reachable only from this runner, with no data.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 3s
+          --health-retries 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,6 +56,7 @@ jobs:
         run: uv run pytest
         env:
           E5_MODEL_DIR: .models/e5
+          TEST_DATABASE_URL: postgresql://postgres@localhost:5432/postgres
 
   terraform:
     name: terraform
