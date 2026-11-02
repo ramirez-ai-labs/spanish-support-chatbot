@@ -29,7 +29,6 @@ locals {
     "roles/serviceusage.serviceUsageAdmin",
     "roles/iam.serviceAccountAdmin",   # create runtime service accounts
     "roles/iam.serviceAccountUser",    # deploy Cloud Run revisions as those accounts
-    "roles/identityplatform.admin",    # sign-in config: email-link provider, authorized domains (#63)
     "roles/serviceusage.apiKeysAdmin", # the chat page's browser API key for sign-in (#63)
   ]
 
@@ -278,4 +277,34 @@ removed {
   lifecycle {
     destroy = false
   }
+}
+
+# --- Sign-in (Identity Platform, the engine behind Firebase Auth) -----------------------------------
+
+# Email-link (passwordless) sign-in only: no passwords to leak, and no SMS to pay for. Tier 1, so up
+# to 50,000 monthly active users are free. Its ID tokens are what the API's Firebase verifier checks
+# (issuer https://securetoken.google.com/<project>).
+#
+# It lives here, not in the gcp stack, because creating it the first time also adds Firebase to the
+# project (firebase.projects.update), which CI isn't given for a one-time step. It's changed rarely,
+# by a local apply. Google creates it once per project and it can't be deleted, only changed. Needs
+# identitytoolkit.googleapis.com, which the gcp stack enables.
+resource "google_identity_platform_config" "auth" {
+  sign_in {
+    allow_duplicate_emails = false
+
+    email {
+      enabled           = true
+      password_required = false # sign in with a one-time link sent by email
+    }
+  }
+
+  # Where a sign-in may start and be completed: the chat page, plus Google's defaults for local
+  # development and the project's own sign-in handler domains.
+  authorized_domains = [
+    trimprefix(var.ui_origin, "https://"),
+    "localhost",
+    "${var.project_id}.firebaseapp.com",
+    "${var.project_id}.web.app",
+  ]
 }
