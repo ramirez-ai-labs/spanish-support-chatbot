@@ -330,7 +330,9 @@ resource "google_project_service" "apikeys" {
 # isn't given that for a one-time step.
 
 # The chat page's browser key for the sign-in API. It's public by design (it's in the page), so it's
-# restricted instead: only the sign-in and token APIs, and only from the chat page and localhost.
+# restricted instead: only completing an email-link sign-in and refreshing tokens, and only from the
+# chat page and localhost. Sending the email (sendOobCode) is blocked; the API does that, behind
+# Turnstile (#72). Method names are the RPC names, checked against a test key.
 resource "google_apikeys_key" "chat_page" {
   name         = "chat-page"
   display_name = "Chat page sign-in"
@@ -338,6 +340,7 @@ resource "google_apikeys_key" "chat_page" {
   restrictions {
     api_targets {
       service = "identitytoolkit.googleapis.com"
+      methods = ["SignInWithEmailLink"]
     }
     api_targets {
       service = "securetoken.googleapis.com"

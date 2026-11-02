@@ -209,8 +209,9 @@ port.
     tab signs out.
   - **No SDK script:** the page calls Google's REST endpoints directly, so the CSP only adds those
     two origins.
-  - **The browser key** is public but restricted to the sign-in and token APIs, from the chat
-    page's origin only.
+  - **The browser key** is public but restricted to two methods, completing an email-link
+    sign-in and refreshing tokens, from the chat page's origin only. It can't send email, and
+    the deploy smoke test checks that Google refuses it.
   - **Free:** up to 50,000 monthly active users (Tier 1).
 
 ## 6. Offline path

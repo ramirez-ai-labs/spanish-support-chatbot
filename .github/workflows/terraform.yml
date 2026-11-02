@@ -303,7 +303,18 @@ jobs:
           if ! grep -qi "^content-security-policy: .*connect-src $URL" <<<"$headers"; then
             echo "::error::The page is missing its Content-Security-Policy."; exit 1
           fi
-          echo "Chat page deployed: $page (config and security headers checked)" >> "$GITHUB_STEP_SUMMARY"
+          # The page's key must not send sign-in emails itself; only the API does, behind
+          # Turnstile. The body is empty, so even a key without the restriction would send nothing.
+          key="$(curl -sf --max-time 10 "$page/config.js" | sed -n 's/.*signInApiKey: "\([^"]*\)".*/\1/p')"
+          echo "::add-mask::$key"
+          for i in $(seq 1 6); do # a changed restriction can take a minute to apply
+            direct="$(curl -s --max-time 10 -H "Referer: $page/" -H 'Content-Type: application/json' \
+              -d '{}' "https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=$key")"
+            if grep -q API_KEY_SERVICE_BLOCKED <<<"$direct"; then break; fi
+            [ "$i" = 6 ] && { echo "::error::The page's browser key can still send sign-in emails directly."; exit 1; }
+            sleep 10
+          done
+          echo "Chat page deployed: $page (config, security headers and browser-key limits checked)" >> "$GITHUB_STEP_SUMMARY"
 
   scan:
     name: tf-scan
