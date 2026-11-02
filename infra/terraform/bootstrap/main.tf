@@ -115,6 +115,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.repository_id"       = "assertion.repository_id"
     "attribute.repository_owner_id" = "assertion.repository_owner_id"
     "attribute.gate"                = "assertion.ref + '@' + assertion.event_name + '@' + ('environment' in assertion ? assertion.environment : 'none')"
+    # The workflow file and the ref it ran from, e.g. owner/repo/.github/workflows/index.yml@refs/heads/main:
+    # trusts one workflow, not every job on a branch.
+    "attribute.workflow" = "assertion.job_workflow_ref"
   }
 
   # Pinned to numeric IDs, so a renamed, transferred or re-created repo cannot authenticate.
@@ -136,6 +139,20 @@ resource "google_service_account" "plan" {
 resource "google_service_account" "apply" {
   account_id   = "tf-apply"
   display_name = "Terraform apply (CI, main only)"
+}
+
+# Indexing (ADR 0007, #86): keeps the Neon knowledge chunks in step with knowledge/. No project
+# roles; the gcp stack lets it read the indexer's connection secrets only, and the indexer role can
+# write only the chunks table.
+resource "google_service_account" "indexer" {
+  account_id   = "indexer-ci"
+  display_name = "Knowledge indexing (CI, index workflow on main only)"
+}
+
+resource "google_service_account_iam_member" "indexer_wif" {
+  service_account_id = google_service_account.indexer.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.workflow/${github_repository.this.full_name}/.github/workflows/index.yml@refs/heads/main"
 }
 
 resource "google_service_account_iam_member" "plan_wif" {
