@@ -211,7 +211,7 @@ It rotates the secret through Cloudflare's API, so the old one stops working at 
 the new one without printing it, and destroys older versions. Redeploy afterwards, because instances
 read the secret when they start.
 
-- [ ] M1: Turnstile secret rotated and stored (this also retires the copy PR jobs could read before
+- [x] M1: Turnstile secret rotated and stored, 2026-11-01 (this also retires the copy PR jobs could read before
   the state bucket's policy was made authoritative)
 
 ### Create the Neon project (M1, once)
@@ -433,7 +433,7 @@ To rotate, add a new version the same way and disable the old one
   truncated paste stores a key Gemini rejects with 401
 
 - [x] M1: `gcp` stack plans on PR and applies on merge, with the app deploy (2026-11-01)
-- [ ] M1: `shared` stack applies on merge after approval. It has no PR plan: its token is a `prod` environment secret, and tf-plan can't read its state
+- [x] M1: `shared` stack applies on merge after approval (2026-11-01). It has no PR plan: its token is a `prod` environment secret, and tf-plan can't read its state
 - [ ] M7: `azure` stack plans on PR and applies on merge
 - [ ] M8: `aws` stack plans on PR and applies on merge
 - [x] `prod` GitHub environment requires approval (2026-10-31)

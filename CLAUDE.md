@@ -16,8 +16,8 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 
 ## Current status
 
-M1 in progress (M0 shipped as `v0.0.1`); its "done when" is met, with sign-in (#63) and GitHub
-settings as code (#21) left before `v0.1.0`. Live today:
+M1 shipped as `v0.1.0` (M0 as `v0.0.1`). Two M1 items follow as `v0.1.1`: sign-in (#63) and GitHub
+settings as code (#21). Live today:
 
 - the chat page on Cloudflare Pages (Turnstile, browser-started traces) calling the API on Cloud Run
 - on every call: the token check (anonymous tier until sign-in), the bot check, Gemini's content

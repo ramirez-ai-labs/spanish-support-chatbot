@@ -158,7 +158,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 - [x] OpenTelemetry in the API, exporting to Cloud Trace and Cloud Logging
 - [x] `migrations/` for `llm_usage` and `model_prices`; usage event in `LLMProvider` with tokens, model, `purpose`, `prompt_parts`, latency; async write
 - [x] CI deploy via Workload Identity Federation, post-deploy smoke test
-- [ ] Tag `v0.1.0`
+- [x] Tag `v0.1.0` (2026-11-01)
 
 ### M2 · RAG and indexing pipeline (Nov 16–29)
 
