@@ -27,8 +27,10 @@ locals {
     "roles/datastore.owner",
     "roles/bigquery.admin",
     "roles/serviceusage.serviceUsageAdmin",
-    "roles/iam.serviceAccountAdmin", # create runtime service accounts
-    "roles/iam.serviceAccountUser",  # deploy Cloud Run revisions as those accounts
+    "roles/iam.serviceAccountAdmin",   # create runtime service accounts
+    "roles/iam.serviceAccountUser",    # deploy Cloud Run revisions as those accounts
+    "roles/identityplatform.admin",    # sign-in config: email-link provider, authorized domains (#63)
+    "roles/serviceusage.apiKeysAdmin", # the chat page's browser API key for sign-in (#63)
   ]
 
   # The only project roles the apply account may grant (to runtime service accounts). It can

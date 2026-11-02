@@ -383,9 +383,23 @@ Then run `terraform init` and `terraform plan` from the other OS to confirm it s
 
 ## 6. Hand off to CI and lock down
 
-The `prod` GitHub environment (Settings → Environments) requires the owner's approval and allows
-only protected branches. Its name is part of the apply account's trust, so renaming it breaks
-applies until the bootstrap stack is updated.
+**GitHub settings are code** too, in the bootstrap stack
+([`github.tf`](terraform/bootstrap/github.tf)), applied locally with your own GitHub login. That's why
+every bootstrap `plan` and `apply` needs `GITHUB_TOKEN` (section 3). CI never manages GitHub
+settings, so no repo-admin token ever reaches it.
+
+- **`main` ruleset:** PRs only, squash only, linear history, no force pushes or deletion,
+  conversations resolved, and 9 required checks, each pinned to the GitHub Actions app so a status
+  with the same name from anywhere else doesn't count. It has no bypass actors, so it binds admins
+  too. The older classic branch protection still applies alongside it, until it's removed (#21).
+- **`prod` environment:** requires the owner's approval, allows only protected branches, and **admins
+  can't bypass it.** Its name is part of the apply account's trust, so renaming it breaks applies
+  until the bootstrap stack is updated.
+- **Repository:** squash-only merges, branches deleted on merge, secret scanning with push
+  protection, Dependabot security updates and vulnerability alerts. `prevent_destroy` and
+  `archive_on_destroy` make sure Terraform can never delete the repository.
+
+A change made by hand in GitHub's settings shows up as drift in the next bootstrap `plan`.
 
 **How infrastructure changes flow** ([`.github/workflows/terraform.yml`](../.github/workflows/terraform.yml)):
 
