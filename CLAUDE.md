@@ -85,7 +85,7 @@ Expected layout (create folders as milestones need them, not up front):
 
 ```text
 core/  adapters/{shared,gcp,azure,aws}/  apps/  ui/  indexing/  migrations/
-evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,design.md,adr/,friction-log.md}
+evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,design.md,adr/,build-log.md,friction-log.md}
 .github/workflows/  docker-compose.yml  pyproject.toml   # extras: [gcp], [azure], [aws]
 ```
 
@@ -159,4 +159,6 @@ evals/  infra/terraform/  tests/{unit,contract,integration}/  docs/{roadmap.md,d
 ## Definition of done
 
 Tests pass (unit + contract + relevant integration), docs/ADR updated, demo clip recorded,
-issue closed. Each milestone must end in something that runs or a doc that can be shown.
+issue closed. At each milestone's close, `docs/build-log.md` gets its section (what was built, in
+what order, with PRs and measured numbers), and anything that broke goes in `docs/friction-log.md`
+with the rule it left behind. Each milestone must end in something that runs or a doc that can be shown.

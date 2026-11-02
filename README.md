@@ -8,7 +8,8 @@ The goal is to show full system design, not just a chatbot: identity tiers, PII 
 eval gate in CI, tracing, cost tracking, and the same app running natively on GCP, Azure and AWS,
 all on free tiers with synthetic data only.
 
-**Status:** M1, walking skeleton on GCP. Try it at https://spanish-support-chatbot.pages.dev:
+**Status:** M1 shipped; M2 (answers from each market's policy docs) is in progress. Try it at
+https://spanish-support-chatbot.pages.dev:
 - **Behind the page:** the chat page on Cloudflare Pages calls the API on Cloud Run.
 - **Deploys:** both are deployed from CI after an approval.
 - **On every message:**
@@ -52,9 +53,21 @@ Every adapter for a port passes the same contract suite in [`tests/contract/`](t
 Tests that call a real service, like the Gemini adapter's, are marked `integration`. CI skips
 them; run them locally with the key from `.env`: `uv run pytest -m integration`.
 
-- [Design](docs/design.md): online path, identity tiers, delivery and tradeoffs
-- [Roadmap and milestones](docs/roadmap.md)
-- [Architecture decisions](docs/adr/README.md)
-- [Infrastructure bootstrap](infra/BOOTSTRAP.md)
+## Read the build
+
+New here? In this order:
+
+1. **[Design, §3](docs/design.md#3-architecture):** the target architecture, then what runs
+   today and how data flows across each trust boundary.
+2. **[Build log](docs/build-log.md):** how it was built, step by step, with the PRs and the
+   numbers measured along the way.
+3. **[Architecture decisions](docs/adr/README.md):** each major choice, its alternatives and
+   its cost.
+4. **[Friction log](docs/friction-log.md):** what went wrong, why, and the rule it left behind.
+5. **[Design, §8](docs/design.md#8-cost-and-scale):** cost, free tiers, and build vs. buy against
+   each cloud's managed services.
+6. **[Roadmap](docs/roadmap.md):** what's done and what's next, milestone by milestone.
+
+For running the infrastructure yourself: [infra/BOOTSTRAP.md](infra/BOOTSTRAP.md).
 
 Licensed under [Apache 2.0](LICENSE).
