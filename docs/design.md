@@ -217,8 +217,9 @@ flowchart LR
     pr -->|"tf-apply-gate"| refused1["Apply account refused"]
     merge["Merge to main"] -->|"tf-apply-gate-main"| refused2["Refused without prod"]
     merge --> approve{"Owner approves prod"}
-    approve --> job["tf-apply job: apply, build, push, deploy, smoke test"]
+    approve --> job["tf-apply job: apply both stacks, build, deploy, smoke test"]
     job --> run["Cloud Run revision"]
+    job --> page["Pages deployment (chat page)"]
 ```
 
 - **Keyless CI login.** GitHub's OIDC token is exchanged through Workload Identity Federation.
@@ -241,8 +242,14 @@ flowchart LR
 - **Split ownership of the service.** Terraform owns Cloud Run's settings: limits, identity, env,
   secret references. CI owns the image. Terraform ignores image changes, so an apply never rolls
   back a deploy, and rollback is a traffic shift to the last good revision.
-- **One approval per merge.** The approved job applies the stack, builds `api:<commit>`, pushes it,
-  deploys it and smoke tests `/health` and one real Spanish answer.
+- **One approval per merge.** The approved job:
+  1. applies the `shared` stack (Cloudflare Pages and Turnstile; it's only ever planned here, since its
+     token is a `prod` environment secret) and the `gcp` stack
+  2. builds, pushes and deploys `api:<commit>`
+  3. smoke tests the API: `/health`, a forged token refused, a missing bot check refused, and one real
+     Spanish answer through the signed deploy probe
+  4. deploys the chat page with this deploy's API URL and site key, and checks that it serves them
+     with its security headers
 - **Public logs.**
   - Project values are Actions *secrets*, which GitHub masks. Variables are never masked.
   - The project number and the service URL are masked explicitly.

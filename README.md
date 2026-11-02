@@ -17,8 +17,9 @@ all on free tiers with synthetic data only.
   - one trace from the browser to the model
   - one usage row with its shadow cost
 
-Sign-in is next. M0 (local bot, CI, guardrails) shipped as
-[`v0.0.1`](https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.0.1).
+M1 shipped as [`v0.1.0`](https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.1.0),
+and M0 (local bot, CI, guardrails) as
+[`v0.0.1`](https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.0.1). Sign-in is next.
 
 ## Run it locally
 
