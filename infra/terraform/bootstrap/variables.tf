@@ -21,6 +21,12 @@ variable "github_repository" {
   default     = "ramirez-ai-labs/spanish-support-chatbot"
 }
 
+variable "github_owner" {
+  description = "Organization that owns the repository."
+  type        = string
+  default     = "ramirez-ai-labs"
+}
+
 variable "github_repository_id" {
   description = "Numeric GitHub repository ID. Trust is pinned to IDs, so a deleted and re-created repo with the same name cannot authenticate."
   type        = string
