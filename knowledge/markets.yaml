@@ -1,0 +1,15 @@
+# Markets the assistant serves. Adding a country is data: add it here and add its docs under
+# knowledge/docs/<code>/. The page's market selector and the API's market check both read this.
+markets:
+  - code: US
+    name: Estados Unidos
+    currency: USD
+  - code: MX
+    name: México
+    currency: MXN
+  - code: SV
+    name: El Salvador
+    currency: USD
+  - code: ES
+    name: España
+    currency: EUR
