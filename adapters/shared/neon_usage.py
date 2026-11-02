@@ -1,13 +1,16 @@
 """UsageSink that inserts into llm_usage in Neon, as the insert-only usage_writer role (ADR 0006).
 
-One connection, opened on the first record and reused; a broken one is dropped and reopened on the
-next record. Writes run after the answer has streamed, and a failure is logged by error type and
-swallowed: losing a usage row must never fail a chat.
+One connection, opened on the first record and reused. Neon's compute scales to zero when idle and
+closes open connections, so the first write after a quiet spell finds a dead connection: the writer
+reconnects once and retries, so that row isn't lost. Writes run after the answer has streamed, and
+a failure is logged by error type and swallowed: losing a usage row must never fail a chat.
 """
 
 import asyncio
 import contextlib
 import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import psycopg
 
@@ -15,8 +18,8 @@ from core.usage import LLMUsage
 
 logger = logging.getLogger(__name__)
 
-# Generous: a Neon compute that scaled to zero takes a few seconds to wake up.
-WRITE_TIMEOUT_SECONDS = 10
+# Generous: a Neon compute that scaled to zero takes seconds to wake up, and a retry reconnects.
+WRITE_TIMEOUT_SECONDS = 15
 
 INSERT = """
 insert into llm_usage (
@@ -27,24 +30,37 @@ insert into llm_usage (
 
 
 class NeonUsageSink:
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, connect: Callable[[], Awaitable[Any]] | None = None) -> None:
         self._url = url
-        self._conn: psycopg.AsyncConnection[tuple[object, ...]] | None = None
+        self._connect = connect or self._open
+        self._conn: Any = None
         self._lock = asyncio.Lock()  # one connection, so one insert at a time
+
+    async def _open(self) -> psycopg.AsyncConnection[tuple[object, ...]]:
+        return await psycopg.AsyncConnection.connect(
+            self._url, autocommit=True, connect_timeout=WRITE_TIMEOUT_SECONDS
+        )
 
     async def record(self, usage: LLMUsage) -> None:
         try:
-            await asyncio.wait_for(self._insert(usage), WRITE_TIMEOUT_SECONDS)
+            await asyncio.wait_for(self._insert_with_retry(usage), WRITE_TIMEOUT_SECONDS)
         except Exception as exc:
             logger.warning("usage_write_failed type=%s", type(exc).__name__)
             await self._drop_connection()
 
+    async def _insert_with_retry(self, usage: LLMUsage) -> None:
+        try:
+            await self._insert(usage)
+        except psycopg.OperationalError:
+            # Most likely the connection Neon closed while its compute was scaled to zero.
+            logger.info("usage_write_reconnect")
+            await self._drop_connection()
+            await self._insert(usage)
+
     async def _insert(self, usage: LLMUsage) -> None:
         async with self._lock:
             if self._conn is None or self._conn.closed:
-                self._conn = await psycopg.AsyncConnection.connect(
-                    self._url, autocommit=True, connect_timeout=WRITE_TIMEOUT_SECONDS
-                )
+                self._conn = await self._connect()
             t = usage.tokens
             await self._conn.execute(
                 INSERT,
