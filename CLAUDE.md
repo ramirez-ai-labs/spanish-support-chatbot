@@ -28,7 +28,7 @@ settings as code (#21). M2 (RAG + indexing) is next. Live today:
 - the stacks: `bootstrap` (applied locally; also GitHub settings and custom IAM roles), `gcp` and
   `shared` (Cloudflare), applied by CI;
   Neon is scripted, with roles and grants in `migrations/` (ADR 0006)
-- six ADRs, `docs/design.md`, and contract suites for every port
+- seven ADRs (0007 is the M2 retrieval design), `docs/design.md`, and contract suites for every port
 
 The `tf-apply` job in `terraform.yml` applies both stacks, builds, deploys the API and the page,
 and smoke tests them, after the `prod` approval. Before starting work, check the active milestone and its issues (`gh issue list --milestone ...`) and stay
@@ -60,7 +60,8 @@ Never cut M4 or M6 to recover schedule; slip M7/M8 instead.
   provisioned Cosmos DB / DynamoDB capacity, not serverless/on-demand.
 - **Synthetic data only.** Never add real customer data, real ID numbers, or real card numbers —
   including in tests, fixtures and eval sets.
-- **LLM:** Gemini Flash free tier on every cloud; e5-small embeddings in the container.
+- **LLM:** Gemini Flash free tier on every cloud; multilingual e5-small embeddings (int8 ONNX) in the
+  container (ADR 0007).
   Do not call the Anthropic API from this project or its tooling unless explicitly asked.
   Tests and CI use the mock LLM from `docker-compose.yml`; local dev may use the free-tier Gemini key from `.env`.
 - **Portability:** only adapters change between clouds.
