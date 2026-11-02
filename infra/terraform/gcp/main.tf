@@ -196,7 +196,7 @@ resource "google_cloud_run_v2_service" "api" {
       resources {
         limits = {
           cpu    = "1"
-          memory = "512Mi"
+          memory = "768Mi" # 455 MiB idle with e5 loaded (#50); Cloud Run stops an instance over its limit
         }
         cpu_idle          = true # CPU only while handling requests: request-based billing
         startup_cpu_boost = false
@@ -250,6 +250,11 @@ resource "google_cloud_run_v2_service" "api" {
             version = "latest"
           }
         }
+      }
+      env {
+        # multilingual-e5-small, baked into the image and loaded at startup (ADR 0007, #50)
+        name  = "EMBEDDER"
+        value = "e5"
       }
       env {
         # /v1/sign-in-link sends the email as the runtime account, behind the bot check, and the

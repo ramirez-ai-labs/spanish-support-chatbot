@@ -38,8 +38,12 @@ jobs:
         run: uv run mypy
       - name: Import rules
         run: uv run lint-imports
+      - name: Fetch the pinned e5 model (checksummed), so its contract tests run
+        run: uv run python -m adapters.shared.e5 fetch .models/e5
       - name: Tests
         run: uv run pytest
+        env:
+          E5_MODEL_DIR: .models/e5
 
   terraform:
     name: terraform
@@ -79,7 +83,7 @@ jobs:
         run: docker build --tag spanish-support-chatbot:ci .
       - name: Image size budget (keeps cold starts fast and the registry inside its free 0.5 GB)
         run: |
-          budget_mb=300 # uncompressed, 226 MB at M1; raised deliberately when e5 (#50) and Presidio (#51) land
+          budget_mb=650 # uncompressed: 226 MB at M1, 594 MB with e5 (#50); raised again for Presidio (#51)
           size_mb=$(( $(docker image inspect spanish-support-chatbot:ci --format '{{.Size}}') / 1000000 ))
           echo "Image size: ${size_mb} MB uncompressed (budget ${budget_mb} MB)" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ "$size_mb" -gt "$budget_mb" ]; then
@@ -95,10 +99,12 @@ jobs:
           ignore-unfixed: true # base-image CVEs with no fix yet can't be acted on; fixable ones fail
           exit-code: "1"
           hide-progress: true
-      - name: Smoke test with the mock LLM
+      - name: The baked e5 model loads and ranks a Spanish passage correctly
+        run: docker run --rm spanish-support-chatbot:ci python -m adapters.shared.e5 check /app/models/e5
+      - name: Smoke test with the mock LLM and e5 loaded at startup
         run: |
-          docker run -d --name api -p 8000:8000 -e LLM_PROVIDER=mock spanish-support-chatbot:ci
-          for i in $(seq 1 30); do curl -sf localhost:8000/health && break; sleep 1; done
+          docker run -d --name api -p 8000:8000 -e LLM_PROVIDER=mock -e EMBEDDER=e5 spanish-support-chatbot:ci
+          for i in $(seq 1 60); do curl -sf localhost:8000/health && break; sleep 1; done
           curl -sfN localhost:8000/v1/chat -H 'Content-Type: application/json' \
             -d '{"message": "¿Cómo bloqueo mi tarjeta?"}' | tee reply.txt
           grep -q 'event: done' reply.txt

@@ -147,3 +147,16 @@ def test_unreachable_keys_are_503_and_never_stream(caplog: pytest.LogCaptureFixt
     assert (response.status_code, response.json()) == (503, {"error": "auth_unavailable"})
     assert llm.seen == []
     assert "request_rejected reason=auth_unavailable" in caplog.text
+
+
+def test_embedder_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    from adapters.shared.hash_embedder import HashEmbedder
+    from apps.api.main import build_embedder
+
+    monkeypatch.delenv("EMBEDDER", raising=False)
+    assert build_embedder() is None
+    monkeypatch.setenv("EMBEDDER", "hash")
+    assert isinstance(build_embedder(), HashEmbedder)
+    monkeypatch.setenv("EMBEDDER", "nope")
+    with pytest.raises(ValueError, match="Unknown EMBEDDER"):
+        build_embedder()

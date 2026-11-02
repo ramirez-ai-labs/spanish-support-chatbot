@@ -25,6 +25,23 @@ class LLMProvider(Protocol):
     ) -> AsyncIterator[str]: ...
 
 
+class Embedder(Protocol):
+    """Turns text into unit-length vectors for retrieval (ADR 0007).
+
+    Passages (when indexing) and queries (at question time) are embedded differently, so they are
+    separate methods; the adapter adds whatever its model needs, e.g. e5's `passage:` and `query:`
+    prefixes. `model` names the model and its version: each chunk records it, and vectors are
+    only ever compared with the same model's. CPU-bound: the API calls it off the event loop.
+    """
+
+    model: str
+    dimensions: int
+
+    def embed_passages(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+    def embed_query(self, text: str) -> list[float]: ...
+
+
 class UsageSink(Protocol):
     """Stores one LLMUsage per model call (llm_usage in Neon).
 
