@@ -25,6 +25,14 @@ def tier_allows(held: Tier, required: Tier) -> bool:
     return _RANK[held] >= _RANK[required]
 
 
+class IdentityUnavailable(Exception):
+    """The provider's signing keys couldn't be fetched, so no token can be checked right now.
+
+    The API refuses with 503, failing closed, and the page keeps its session: the token itself
+    may be fine, so this must never look like an invalid token.
+    """
+
+
 class InvalidToken(Exception):
     """The token failed verification. `reason` is a short code, safe to log; never the token."""
 

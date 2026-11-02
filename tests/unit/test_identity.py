@@ -12,7 +12,13 @@ from fastapi.testclient import TestClient
 from adapters.shared.jwt_identity import JwtIdentityProvider
 from adapters.shared.mock_llm import MockLLM
 from apps.api.main import build_identity, create_app
-from core.identity import STEP_UP_WINDOW_SECONDS, Tier, VerifiedToken, caller_for
+from core.identity import (
+    STEP_UP_WINDOW_SECONDS,
+    IdentityUnavailable,
+    Tier,
+    VerifiedToken,
+    caller_for,
+)
 from tests.jwt_keys import OTHER_KEY, FakeKeys, claims, sign
 
 ISSUER, AUDIENCE = "https://issuer.example", "demo-audience"
@@ -123,3 +129,21 @@ def test_identity_provider_choice(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("IDENTITY_PROVIDER", "nope")
     with pytest.raises(ValueError, match="Unknown IDENTITY_PROVIDER"):
         build_identity()
+
+
+def test_unreachable_keys_are_503_and_never_stream(caplog: pytest.LogCaptureFixture) -> None:
+    class Unavailable:
+        def verify(self, token: str) -> VerifiedToken:
+            raise IdentityUnavailable()
+
+    llm = RecordingLLM()
+    app = create_app(llm=llm, identity=Unavailable())
+    with caplog.at_level("INFO", logger="apps.api.main"):
+        response = TestClient(app).post(
+            "/v1/chat", json={"message": "hola"}, headers={"Authorization": f"Bearer {token()}"}
+        )
+
+    # Not a 401: the page signs out only on 401, and this token may be fine.
+    assert (response.status_code, response.json()) == (503, {"error": "auth_unavailable"})
+    assert llm.seen == []
+    assert "request_rejected reason=auth_unavailable" in caplog.text

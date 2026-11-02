@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from core.bot_check import BotCheckFailed
 from core.chat import MAX_MESSAGE_CHARS, ChatService
-from core.identity import ANONYMOUS, Caller, InvalidToken, caller_for
+from core.identity import ANONYMOUS, Caller, IdentityUnavailable, InvalidToken, caller_for
 from core.ports import (
     BotCheck,
     DeployProbe,
@@ -271,6 +271,8 @@ def create_app(
                     rejection = check_bot(http.headers.get("cf-turnstile-response"))
             except InvalidToken as exc:
                 rejection = (exc.reason, 401)
+            except IdentityUnavailable:
+                rejection = ("auth_unavailable", 503)  # fail closed, but keep the page's session
             if rejection is not None:
                 # The reason code only: never a token or its claims. Logged inside the span,
                 # so Cloud Logging links the line to this request's trace.

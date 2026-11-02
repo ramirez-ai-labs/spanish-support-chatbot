@@ -38,8 +38,9 @@ class UsageSink(Protocol):
 class IdentityProvider(Protocol):
     """Verifies a bearer token: signature, issuer, audience, expiry and the claims the tiers need.
 
-    Raises `core.identity.InvalidToken` when any check fails. Tokens never go past this port: the
-    core gets a `VerifiedToken`, and the LLM never sees either.
+    Raises `core.identity.InvalidToken` when any check fails, and
+    `core.identity.IdentityUnavailable` when the provider's keys can't be fetched. Tokens never go
+    past this port: the core gets a `VerifiedToken`, and the LLM never sees either.
     """
 
     def verify(self, token: str) -> VerifiedToken: ...
