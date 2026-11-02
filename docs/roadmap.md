@@ -146,7 +146,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 **Demo:** ask in Spanish and get a streamed answer; sign in and show the token check, the trace and the token count for that call.
 
 - [x] Bootstrap Terraform run locally, GCP only: GCS state bucket and GitHub OIDC trust for GCP
-- [ ] `shared` Terraform stack via CI: GitHub settings, Cloudflare Pages and Turnstile. The Neon project in AWS US East 1 comes from `infra/scripts/neon-bootstrap.sh`, and its roles (`indexer`, `app_gcp`, `usage_writer`) and pgvector come from SQL migrations with #20 ([ADR 0006](adr/0006-neon-outside-terraform.md)); the `dev` branch comes with M2 indexing
+- [x] `shared` Terraform stack via CI: Cloudflare Pages and Turnstile. GitHub settings moved to the bootstrap stack (#21), since they guard CI itself. The Neon project in AWS US East 1 comes from `infra/scripts/neon-bootstrap.sh`, and its roles and grants from SQL migrations ([ADR 0006](adr/0006-neon-outside-terraform.md)): `usage_writer` in M1 (#20); `indexer`, `app_gcp`, pgvector and the `dev` branch come with M2 indexing
 - [x] `gcp` Terraform stack: Cloud Run service, Artifact Registry, Secret Manager. Firestore moved to M3 with sessions, BigQuery to M5 with turn-level logs (usage events live in Neon); the budget stays manual
 - [x] Deploy the M0 local chatbot to Cloud Run first, then add the pieces below one per session
 - [x] `docs/design.md`: requirements, layered diagram with the identity layer, first tradeoffs table
@@ -159,6 +159,7 @@ Done when: a deployed page answers a Spanish question through Gemini, the API re
 - [x] `migrations/` for `llm_usage` and `model_prices`; usage event in `LLMProvider` with tokens, model, `purpose`, `prompt_parts`, latency; async write
 - [x] CI deploy via Workload Identity Federation, post-deploy smoke test
 - [x] Tag `v0.1.0` (2026-11-01)
+- [x] Tag `v0.1.1` (2026-11-01): email-link sign-in sent by the API behind Turnstile, with the page's browser key limited to completing sign-in (#63, #72); GitHub settings as code (#21); a fresh Turnstile token per send; a Neon reconnect after idle
 
 ### M2 · RAG and indexing pipeline (Nov 16–29)
 

@@ -329,9 +329,10 @@ while the bill is $0.
 
 ## 10. Risks and open questions
 
-- **Public endpoint before Turnstile.** Anyone with the URL can use up the free Gemini quota.
-  It can't cost money, because the key's project has no billing. Closed by Turnstile
-  ([#22](https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/22)) and rate limits (M5).
+- **Public endpoint.** Anyone with the URL could use up the free Gemini quota; it can't cost
+  money, because the key's project has no billing. Every chat message and sign-in link now needs
+  a fresh Turnstile token ([#22](https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/22));
+  per-visitor rate limits come in M5.
 - **Content safety relies on Gemini's filter and the model's refusals.** Sexual and racist answers are blocked; violent requests are refused by the model, not the filter, and ratings vary from run to run. The M4 safety set measures this and decides on an input classifier (#65).
 - **Sign-in emails share one sender.** Since #72 every link is sent by the API, so all visitors
   share the project's sign-in email limits. Turnstile keeps bulk requests out, and M5's rate
