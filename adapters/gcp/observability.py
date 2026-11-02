@@ -49,3 +49,6 @@ def configure_cloud_logging(project_id: str) -> None:
     root = logging.getLogger()
     root.addHandler(handler)
     root.setLevel(logging.INFO)
+    # Libraries that log every outgoing request at INFO: keep only their warnings and errors.
+    for noisy in ("httpx", "google_genai"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)

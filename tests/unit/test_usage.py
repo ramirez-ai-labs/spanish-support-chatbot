@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
@@ -109,3 +110,42 @@ def test_usage_sink_choice(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("USAGE_SINK", "nope")
     with pytest.raises(ValueError, match="Unknown USAGE_SINK"):
         build_usage_sink()
+
+
+class FakeConnection:
+    def __init__(self, fail: bool) -> None:
+        self.fail = fail
+        self.closed = False
+        self.inserts = 0
+
+    async def execute(self, query: str, params: object) -> None:
+        if self.fail:
+            self.closed = True
+            raise psycopg.OperationalError("server closed the connection unexpectedly")
+        self.inserts += 1
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def test_the_first_write_after_neon_scaled_to_zero_reconnects_and_keeps_the_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The reused connection is dead (Neon closed it while idle); a fresh one works.
+    dead, fresh = FakeConnection(fail=True), FakeConnection(fail=False)
+    opened = iter([dead, fresh])
+
+    async def connect() -> FakeConnection:
+        return next(opened)
+
+    sink = NeonUsageSink("unused", connect=connect)
+    record = LLMUsage(
+        "gcp", "mock", "chat", PROMPT_PARTS, TokenUsage(1, 0, 1, 0), 5, 2, "done", None
+    )
+
+    with caplog.at_level("INFO"):
+        asyncio.run(sink.record(record))
+
+    assert fresh.inserts == 1  # the row was written on the retry
+    assert "usage_write_failed" not in caplog.text
+    assert "usage_write_reconnect" in caplog.text
