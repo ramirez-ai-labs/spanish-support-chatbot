@@ -1,11 +1,14 @@
 """Ports the core depends on. Adapters in `adapters/` implement them per provider or cloud."""
 
-from collections.abc import AsyncIterator, Mapping, Sequence
-from typing import Any, Protocol
+from collections.abc import AsyncIterator, Collection, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Protocol
 
 from core.identity import Caller, VerifiedToken
 from core.tools import ToolResult, ToolSpec
 from core.usage import LLMUsage, TokenUsage
+
+if TYPE_CHECKING:  # core.indexing imports this module
+    from core.indexing import StoredChunk
 
 
 class LLMProvider(Protocol):
@@ -40,6 +43,18 @@ class Embedder(Protocol):
     def embed_passages(self, texts: Sequence[str]) -> list[list[float]]: ...
 
     def embed_query(self, text: str) -> list[float]: ...
+
+
+class ChunkStore(Protocol):
+    """Where the indexer keeps knowledge chunks and their vectors (the `chunks` table in Neon).
+
+    Chunks are identified by content hash. `apply` inserts and deletes in one transaction, so a
+    failed run leaves the store as it was, and the API never sees a half-indexed doc.
+    """
+
+    def content_hashes(self) -> set[str]: ...
+
+    def apply(self, insert: Sequence["StoredChunk"], delete: Collection[str]) -> None: ...
 
 
 class UsageSink(Protocol):

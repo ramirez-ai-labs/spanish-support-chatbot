@@ -1,6 +1,8 @@
-# Local stack. M0: the API only; Postgres with pgvector is added when retrieval lands (M2).
+# Local stack.
 #   docker compose up --build                       -> real Gemini (needs GEMINI_API_KEY in .env)
 #   LLM_PROVIDER=mock docker compose up --build     -> mock LLM, no key, no network
+#   docker compose up -d db                         -> Postgres with pgvector, for the knowledge
+#     tests: TEST_DATABASE_URL=postgresql://postgres@localhost:5433/postgres uv run pytest
 
 services:
   api:
@@ -18,3 +20,19 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+
+  # Throwaway local Postgres with the same pgvector as Neon (0.8.0), for the chunk store's
+  # contract tests and local indexing. No volume: it starts empty every time. No password either,
+  # so it's published on this machine's loopback only.
+  db:
+    image: pgvector/pgvector:0.8.0-pg17
+    profiles: ["db"]
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
