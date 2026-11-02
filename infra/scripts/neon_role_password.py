@@ -14,7 +14,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import psycopg
 from psycopg import sql
 
-ROLES = {"usage_writer"}  # roles created by migrations; app_gcp and indexer join in M2
+ROLES = {"usage_writer", "app_gcp", "indexer"}  # the app roles created by migrations/0001 and 0004
 
 
 def main() -> int:
