@@ -442,6 +442,10 @@ The full procedure and the security test layers are in [BOOTSTRAP.md](../infra/B
 | Artifact Registry | 0.5 GB | 3 newest images kept |
 | Secret Manager | 6 versions, 10k accesses a month | 1 version |
 | Gemini (AI Studio) | Free tier, key in a project with **no billing** | It returns 429 at the limit instead of billing |
+| Neon Postgres + pgvector | 0.5 GB storage, 100 CU-hours a month per project; compute suspends at the limit instead of billing | Usage rows and 84 knowledge chunks (a few MB); scales to zero after 5 minutes idle |
+| e5 embeddings | In the container: no API, no quota | ~70 ms a text on Cloud Run's CPU |
+| Cloudflare Pages + Turnstile | Free plan | The chat page and its bot check |
+| GitHub Actions | Free for public repositories | CI, deploys and (M2) indexing |
 
 Separately, $1 budget alerts and spend caps catch surprises.
 
@@ -467,6 +471,54 @@ So serving scales out easily. The binding limits are elsewhere:
 time from a dated `model_prices` table, never hardcoded. That shows a production "shadow cost" even
 while the bill is $0.
 
+### 8.1 Build vs. buy: what each piece replaces
+
+Every piece here exists as a managed service on each cloud. This design builds the pieces instead,
+for four reasons: **$0 to run**, **one knowledge layer shared by three clouds** (ADR 0002), **no
+extra network call on the hot path**, and showing what those services do inside.
+
+Prices were checked on **2026-11-02** and change often: follow the links before budgeting. Figures
+marked ≈ come from third-party price trackers, where the vendor page shows them only in its
+calculator.
+
+| Piece | Built here | GCP managed | Azure managed | AWS managed |
+| --- | --- | --- | --- | --- |
+| **Vector index + filtered search** | Neon pgvector, HNSW, market filter enforced by a port: **$0** (free tier) | [Vertex AI Vector Search](https://cloud.google.com/vertex-ai/pricing): nodes bill per hour whether or not queried; ≈ $0.094 a node-hour (e2-standard-2), ≈ $68 a month for one node | [Azure AI Search](https://azure.microsoft.com/pricing/details/search/): Free tier is 50 MB on shared hardware; Basic ≈ $74 a month per search unit | [OpenSearch Serverless](https://aws.amazon.com/opensearch-service/pricing/) vector collection: ≈ $0.24 an OCU-hour, 2-OCU minimum ≈ $350 a month idle (≈ $175 without redundancy); S3 Vectors and the newer serverless tier remove the floor |
+| **Embeddings** | multilingual-e5-small in the container: **$0**, ~70 ms, no quota | [Vertex AI embeddings](https://cloud.google.com/vertex-ai/generative-ai/pricing): ≈ $0.10 per 1M tokens (`text-embedding-005`), ≈ $0.15–0.20 (Gemini embeddings) | Azure OpenAI `text-embedding-3-small`: ≈ $0.02 per 1M tokens | [Bedrock](https://aws.amazon.com/bedrock/pricing/) Titan Text Embeddings V2: ≈ $0.02 per 1M tokens |
+| **Indexing pipeline** | `apps/indexer` in GitHub Actions: chunk by heading, embed only changed chunks, one transaction: **$0** | Vertex AI Search data stores | AI Search indexers and skillsets (integrated vectorization) | Bedrock Knowledge Bases: no fee of its own; you pay its embeddings and vector store |
+| **Chat model** | Gemini free tier, behind `LLMProvider`: **$0** | Vertex AI Gemini | Azure OpenAI | Bedrock |
+| **Sign-in** | Identity Platform email links: **$0** up to 50k monthly users | the same | Entra External ID | Cognito |
+
+**What the numbers say**
+
+- **The managed vector stores' cost is their idle floor, not their queries.** At this project's size
+  (84 chunks, a few MB), ≈ $70–$350 a month buys capacity that would sit unused. pgvector in a
+  database we already run costs nothing extra.
+- **Embedding APIs are cheap in dollars.** 6M questions a month at ~20 tokens each is ~120M tokens,
+  about $2.40 a month at $0.02 per 1M. So e5 in the container is not a cost decision. It's about
+  **latency** (no second network call before every answer), **quota** (no second rate limit), and
+  **portability** (the same vectors from all three clouds). It costs ~140 MB of image and ~250 MB of
+  memory (#50).
+- **At scale, the model dominates.** At the 50k-conversations-a-day target (6M questions a month),
+  with ~1,500 input and ~200 output tokens a question at Flash-Lite's list price ($0.30 / $2.50 per
+  1M, `model_prices`), the model costs about **$2,700 + $3,000 ≈ $5,700 a month**. Retrieval, managed
+  or not, is a rounding error next to it, so the M4 bakeoff (cheapest model that clears the quality
+  bar) and prompt caching matter far more than the vector store.
+
+**What managed services give that this design doesn't (yet)**
+
+- **Hybrid search** (keywords plus vectors): helps with exact terms such as "CLABE" or "DUI".
+  Postgres full-text search can add it if the M4 eval shows misses.
+- **A semantic reranker**: a second model that reorders the top results.
+- **Operations at scale**: replicas, sharding, SLAs and scheduled source sync.
+
+**When to switch to managed**
+
+- The corpus outgrows one Postgres (millions of chunks), or retrieval needs its own scaling.
+- The evals show hybrid search or reranking is needed, and building them costs more than buying.
+- A customer requires a vendor SLA, private networking, or data residency that Neon can't meet.
+- The deployment commits to one cloud, so the shared-across-clouds argument no longer holds.
+
 ## 9. Tradeoffs
 
 | Decision | Chosen | Alternative | Why |
@@ -474,6 +526,7 @@ while the bill is $0.
 | Serving | Serverless containers ([ADR 0004](adr/0004-serverless-containers-not-kubernetes.md)) | GKE / AKS / EKS | $0 when idle, no cluster work; Kubernetes wins with many services and steady load |
 | Model | Gemini Flash-Lite, free tier, every cloud ([ADR 0003](adr/0003-gemini-on-every-cloud.md)) | Each cloud's native model | One quality bar across clouds, $0; 0.5 s to first token vs over a minute on Flash |
 | Knowledge | One shared Neon pgvector ([ADR 0002](adr/0002-shared-neon-knowledge-layer.md)) | Native vector store per cloud | Same answers and citations everywhere, one index; costs a cross-cloud network hop |
+| Retrieval | pgvector HNSW + e5 in the container ([ADR 0007](adr/0007-rag-design.md), [8.1](#81-build-vs-buy-what-each-piece-replaces)) | Managed vector search + embedding API | $0 instead of a ≈ $70–$350 monthly floor, no second call per question; gives up hybrid search and a reranker until evals ask for them |
 | Repo | Monorepo, cloud-free core ([ADR 0001](adr/0001-monorepo.md)) | Repo per cloud | "Only adapters change" can be checked in CI |
 | Delivery | Thinnest working slice ([ADR 0005](adr/0005-something-runs-every-day.md)) | Infrastructure first | Always something to demo; some rework inside adapters |
 | Who owns the service | Terraform: settings; CI: image | All in Terraform, or all in CI | Declarative settings without Terraform rolling back deploys |
