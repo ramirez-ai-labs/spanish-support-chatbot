@@ -16,14 +16,17 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 
 ## Current status
 
-M1 shipped as `v0.1.0` (M0 as `v0.0.1`). Email-link sign-in (#63) and GitHub settings as code (#21)
-follow as `v0.1.1`. Live today:
+M1 shipped as `v0.1.0` (M0 as `v0.0.1`); `v0.1.1` added email-link sign-in (#63, #72) and GitHub
+settings as code (#21). M2 (RAG + indexing) is next. Live today:
 
-- the chat page on Cloudflare Pages (Turnstile, browser-started traces) calling the API on Cloud Run
-- optional email-link sign-in (Identity Platform), giving the signed-in and step-up tiers
+- the chat page on Cloudflare Pages (a fresh Turnstile token per send, browser-started traces)
+  calling the API on Cloud Run
+- optional email-link sign-in (Identity Platform), giving the signed-in and step-up tiers; the API
+  sends the link behind Turnstile, and the page's browser key can only complete sign-in
 - on every call: the token check (anonymous without a token), the bot check, Gemini's content
   filters, one trace in Cloud Trace, and one usage row in Neon with its shadow cost
-- the stacks: `bootstrap` (applied locally), `gcp` and `shared` (Cloudflare), applied by CI;
+- the stacks: `bootstrap` (applied locally; also GitHub settings and custom IAM roles), `gcp` and
+  `shared` (Cloudflare), applied by CI;
   Neon is scripted, with roles and grants in `migrations/` (ADR 0006)
 - six ADRs, `docs/design.md`, and contract suites for every port
 
