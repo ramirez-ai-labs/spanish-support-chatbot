@@ -96,14 +96,16 @@ query. These constraints shape the details:
 - **No human approval for content:** docs are reviewed in their PR, and the checks gate
   promotion.
 
-**Markets:** US, Mexico, and **Colombia** as the third, from the market list in CLAUDE.md.
+**Markets:** four from the start: the **US** (Spanish speakers), **Mexico**, **El Salvador** and
+**Spain**. They cover very different policies (dollar versus peso, DUI versus DNI versus SSN), so
+the market filter is tested on real differences.
 
 ## Alternatives considered
 
 - **`e5-small-v2` (English).** It's smaller, but it's trained on English and would rank Spanish
   queries poorly.
 - **A larger multilingual model (bge-m3, e5-base).** Better recall, but several times the image
-  size and memory, outside the free registry and the 512 MiB instance. The M4 eval decides if
+  size and memory, outside the free registry and a small instance. The M4 eval decides if
   small isn't good enough.
 - **An embedding API (Gemini or a cloud's own).** No model in the image, but every question
   would make a second network call against a second quota, and the embeddings would tie the
@@ -127,8 +129,11 @@ query. These constraints shape the details:
 - **The registry must stay under 0.5 GB with three versions,** so the model layer has to be
   byte-identical between builds and shared by every version: a pinned file, fixed timestamps, and
   its own early layer. #50 checks the registry's total size.
-- **Cloud Run memory may need 1 GiB** instead of 512 MiB. #50 measures it; 1 GiB is still free at
-  demo traffic.
+- **Cloud Run memory may need to go above 512 MiB.** Today's process uses about 200 MB. The model
+  adds its weights plus ONNX Runtime's working memory, and the tokenizer's 250,000-word vocabulary,
+  so the estimate is 400 to 500 MB. That's too close to 512 MiB, where Cloud Run kills the
+  instance. #50 measures the peak and picks the smallest limit with headroom (768 MiB or 1 GiB).
+  Memory is billed only while requests run, so either stays far inside the free tier.
 - **The model loads at startup,** so cold starts get slower. #50 measures that too; M5 decides on
   warm-up pings.
 - **Two branches to migrate.** `migrations/migrate.py` runs against `dev` and `main`, and
