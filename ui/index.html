@@ -35,6 +35,12 @@
       <section id="log" aria-live="polite" aria-label="Conversación"></section>
 
       <form id="chat" autocomplete="off">
+        <div class="market">
+          <label for="market">¿Desde qué país nos escribes?</label>
+          <select id="market" name="market" required disabled>
+            <option value="" selected disabled>Cargando países…</option>
+          </select>
+        </div>
         <label for="message" class="visually-hidden">Tu pregunta</label>
         <textarea id="message" name="message" rows="2" maxlength="2000" required
           placeholder="Escribe tu pregunta, por ejemplo: ¿Cómo bloqueo mi tarjeta?"></textarea>
