@@ -63,7 +63,9 @@ class RecordingLLM:
 
 def post(headers: dict[str, str], llm: Any = None) -> Any:
     app = create_app(llm=llm or MockLLM(), identity=provider())
-    return TestClient(app).post("/v1/chat", json={"message": "hola"}, headers=headers)
+    return TestClient(app).post(
+        "/v1/chat", json={"message": "hola", "market": "US"}, headers=headers
+    )
 
 
 def test_missing_token_is_the_anonymous_tier() -> None:
@@ -107,7 +109,9 @@ def test_invalid_token_is_401_before_anything_streams(authorization: str) -> Non
 def test_token_is_rejected_when_no_identity_provider_is_configured() -> None:
     app = create_app(llm=MockLLM())
     response = TestClient(app).post(
-        "/v1/chat", json={"message": "hola"}, headers={"Authorization": f"Bearer {token()}"}
+        "/v1/chat",
+        json={"message": "hola", "market": "US"},
+        headers={"Authorization": f"Bearer {token()}"},
     )
     assert response.status_code == 401
 
@@ -140,7 +144,9 @@ def test_unreachable_keys_are_503_and_never_stream(caplog: pytest.LogCaptureFixt
     app = create_app(llm=llm, identity=Unavailable())
     with caplog.at_level("INFO", logger="apps.api.main"):
         response = TestClient(app).post(
-            "/v1/chat", json={"message": "hola"}, headers={"Authorization": f"Bearer {token()}"}
+            "/v1/chat",
+            json={"message": "hola", "market": "US"},
+            headers={"Authorization": f"Bearer {token()}"},
         )
 
     # Not a 401: the page signs out only on 401, and this token may be fine.

@@ -129,7 +129,9 @@ class FakeBotCheck:
 
 def post(bot_check: FakeBotCheck, headers: dict[str, str]) -> httpx.Response:
     app = create_app(llm=MockLLM(), bot_check=bot_check, deploy_probe=probe(), origins=[PAGE])
-    return TestClient(app).post("/v1/chat", json={"message": "hola"}, headers=headers)
+    return TestClient(app).post(
+        "/v1/chat", json={"message": "hola", "market": "US"}, headers=headers
+    )
 
 
 def test_a_message_with_a_passing_bot_check_streams() -> None:
@@ -154,6 +156,13 @@ def test_a_failed_bot_check_is_refused_before_anything_streams(reason: str, stat
     assert response.json() == {"error": reason}
 
 
+def test_the_bot_check_runs_before_the_market_check() -> None:
+    # The deploy smoke test sends no market and expects the bot check's 403, not a 400.
+    app = create_app(llm=MockLLM(), bot_check=FakeBotCheck(fail_with="turnstile_required"))
+    response = TestClient(app).post("/v1/chat", json={"message": "hola"})
+    assert (response.status_code, response.json()) == (403, {"error": "turnstile_required"})
+
+
 def test_the_deploy_probe_skips_the_bot_check_and_gets_an_answer() -> None:
     check = FakeBotCheck(fail_with="turnstile_required")
     response = post(check, {"X-Deploy-Probe": probe_token()})
@@ -171,7 +180,9 @@ def test_a_bad_deploy_probe_is_401_not_a_bypass() -> None:
 def test_a_probe_header_is_refused_when_no_probe_is_configured() -> None:
     app = create_app(llm=MockLLM(), bot_check=FakeBotCheck())
     response = TestClient(app).post(
-        "/v1/chat", json={"message": "hola"}, headers={"X-Deploy-Probe": probe_token()}
+        "/v1/chat",
+        json={"message": "hola", "market": "US"},
+        headers={"X-Deploy-Probe": probe_token()},
     )
     assert response.status_code == 401
 

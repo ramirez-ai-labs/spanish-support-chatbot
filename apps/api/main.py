@@ -45,8 +45,9 @@ KNOWLEDGE = Path(os.environ.get("KNOWLEDGE_DIR", Path(__file__).resolve().parent
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
-    # A code from GET /v1/markets. Optional until the chat page sends it (#89); without it, the
-    # model answers without the market's policy, as before M2.
+    # A code from GET /v1/markets; required, since every answer comes from one market's policy.
+    # Optional in the schema only so that a missing market is refused after the token and bot
+    # checks (400 market_required), never ahead of them with a 422.
     market: str | None = Field(default=None, max_length=8)
 
 
@@ -375,7 +376,9 @@ def create_app(
                 rejection = (exc.reason, 401)
             except IdentityUnavailable:
                 rejection = ("auth_unavailable", 503)  # fail closed, but keep the page's session
-            if rejection is None and request.market is not None and request.market not in markets:
+            if rejection is None and request.market is None:
+                rejection = ("market_required", 400)  # the page's own word for it
+            elif rejection is None and request.market not in markets:
                 rejection = ("unknown_market", 400)
             if rejection is not None:
                 # The reason code only: never a token or its claims. Logged inside the span,

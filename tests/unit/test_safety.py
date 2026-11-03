@@ -33,7 +33,9 @@ def test_a_blocked_answer_is_recorded_with_its_category_and_no_text() -> None:
 def test_the_api_answers_a_block_with_a_refusal(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level("INFO", logger="apps.api.main"):
         body = (
-            TestClient(create_app(llm=MockLLM())).post("/v1/chat", json={"message": MESSAGE}).text
+            TestClient(create_app(llm=MockLLM()))
+            .post("/v1/chat", json={"message": MESSAGE, "market": "US"})
+            .text
         )
 
     assert 'event: error\ndata: {"error": "content_blocked"}' in body
