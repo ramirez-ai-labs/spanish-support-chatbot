@@ -99,6 +99,11 @@ trace and a usage record for every call, deployed by CI.
    "I don't know" comes from the prompt, not the score threshold (0.82, which drops only noise):
    on real Gemini, an enchilada recipe and a Spanish mortgage got "No tengo esa información" plus
    the offer of an agent, even with weak sources attached.
+10. **The page** ([#89]): a country selector built from `GET /v1/markets`, with no default: it
+    asks before the first question and remembers the choice. Each answer shows its sources under
+    it, collapsed, with the first doc in the summary, so a greeting's weak matches stay out of the
+    way. The CSP didn't change. The API makes `market` required in a follow-up, once this page is
+    live: the deploy updates the API a minute before the page, and open tabs keep the old script.
 
 **Measured along the way**
 
@@ -116,7 +121,7 @@ trace and a usage record for every call, deployed by CI.
 | Smoke set, real model | 20 of 20 find their doc in the top 4; 19 first, 1 second (a 0.007 near-tie) |
 | Lowest correct match vs. highest off-topic question | **0.851** vs. **0.874** ("Dame una receta de enchiladas"): no score threshold separates them |
 
-**Still to come in M2:** the market selector and sources on the page ([#89]), and the close-out ([#90]).
+**Still to come in M2:** `market` required in the API, and the close-out ([#90]).
 
 [v0.0.1]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.0.1
 [v0.1.0]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.1.0

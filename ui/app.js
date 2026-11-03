@@ -1,6 +1,11 @@
-// Chat page: sends each message with a fresh Turnstile token, a W3C traceparent and, when signed
-// in, the user's ID token, then streams the reply (server-sent events over fetch). Text is only ever
-// inserted with textContent, so a reply can't inject markup or script.
+// Chat page: sends each message with the visitor's market, a fresh Turnstile token, a W3C
+// traceparent and, when signed in, the user's ID token, then streams the reply (server-sent events
+// over fetch) with the policy sections it's based on under it. Text is only ever inserted with
+// textContent, so a reply or a source can't inject markup or script.
+//
+// The market comes from a selector built from the API's own list (GET /v1/markets). There's no
+// default: the page asks before the first question, since each market's policy differs (ADR
+// 0007), and remembers the choice in localStorage.
 //
 // Sign-in is email-link (passwordless) through Google's Identity Platform REST API, with no SDK
 // script: the page asks for a link, the email brings the user back here with a one-time code, and
@@ -13,6 +18,7 @@ const input = document.getElementById("message");
 const sendButton = document.getElementById("send");
 const statusLine = document.getElementById("status");
 const log = document.getElementById("log");
+const marketSelect = document.getElementById("market");
 
 const ERRORS = {
   turnstile_required: "Completa la verificación antes de enviar.",
@@ -23,6 +29,10 @@ const ERRORS = {
   too_many_attempts: "Demasiados intentos. Inténtalo más tarde.",
   sign_in_unavailable: "No pudimos enviar el enlace. Inténtalo en un momento.",
   model_unavailable: "El asistente no está disponible ahora. Inténtalo en un momento.",
+  knowledge_unavailable: "No pudimos consultar nuestras políticas ahora. Inténtalo en un momento.",
+  unknown_market: "Ese país no está disponible. Elige otro de la lista.",
+  market_required: "Elige tu país antes de enviar tu pregunta.",
+  markets_unavailable: "No pudimos cargar la lista de países. Recarga la página en un momento.",
   invalid_token: "Tu sesión expiró. Inicia sesión de nuevo o continúa sin sesión.",
   content_blocked:
     "No puedo ayudar con ese tipo de contenido. Puedo ayudarte con tus tarjetas, cuentas, pagos y otros temas del banco.",
@@ -60,6 +70,50 @@ function settleToken(token) {
   pendingToken?.resolve(token);
   pendingToken = null;
 }
+
+// --- market ---------------------------------------------------------------------------------------
+
+const MARKET = "chat.market"; // localStorage: the code of the last market chosen
+
+function storedMarket() {
+  try {
+    return localStorage.getItem(MARKET);
+  } catch {
+    return null; // storage blocked: the visitor just chooses again
+  }
+}
+
+async function loadMarkets() {
+  let markets;
+  try {
+    const response = await fetch(`${config.apiUrl}/v1/markets`);
+    if (!response.ok) throw new Error(String(response.status));
+    ({ markets } = await response.json());
+  } catch {
+    marketSelect.options[0].textContent = "No disponible";
+    statusLine.textContent = ERRORS.markets_unavailable;
+    return;
+  }
+  marketSelect.options[0].textContent = "Elige tu país";
+  for (const market of markets) {
+    const option = document.createElement("option");
+    option.value = market.code;
+    option.textContent = market.name;
+    marketSelect.append(option);
+  }
+  const saved = storedMarket();
+  if (saved && markets.some((m) => m.code === saved)) marketSelect.value = saved;
+  marketSelect.disabled = false;
+}
+
+marketSelect.addEventListener("change", () => {
+  statusLine.textContent = "";
+  try {
+    localStorage.setItem(MARKET, marketSelect.value);
+  } catch {
+    // storage blocked: the choice still holds for this page
+  }
+});
 
 // --- sign-in --------------------------------------------------------------------------------------
 
@@ -217,13 +271,39 @@ function newTraceparent() {
   return { traceId, header: `00-${traceId}-${hex(8)}-01` };
 }
 
+// A message's text lives in its own element, so the sources and the trace ID can follow it.
 function addMessage(kind, text) {
   const el = document.createElement("div");
   el.className = `msg ${kind}`;
-  el.textContent = text;
+  const body = document.createElement("div");
+  body.className = "text";
+  body.textContent = text;
+  el.append(body);
   log.append(el);
   el.scrollIntoView({ block: "end", behavior: "smooth" });
   return el;
+}
+
+function setText(el, text) {
+  el.querySelector(".text").textContent = text;
+}
+
+// The policy sections the answer is based on, collapsed so a short answer stays short. The summary
+// names the first one, so two markets' answers differ at a glance.
+function addSources(el, sources) {
+  if (!sources.length) return;
+  const details = document.createElement("details");
+  details.className = "sources";
+  const summary = document.createElement("summary");
+  summary.textContent = `Fuentes (${sources.length}): ${sources[0].title}`;
+  const list = document.createElement("ul");
+  for (const source of sources) {
+    const item = document.createElement("li");
+    item.textContent = `${source.title} — ${source.section}`;
+    list.append(item);
+  }
+  details.append(summary, list);
+  el.append(details);
 }
 
 function addTraceId(el, traceId) {
@@ -234,6 +314,13 @@ function addTraceId(el, traceId) {
 }
 
 async function send(message) {
+  const market = marketSelect.value;
+  if (!market) {
+    statusLine.textContent = marketSelect.disabled ? ERRORS.markets_unavailable : ERRORS.market_required;
+    input.value = message; // keep the question for after the choice
+    marketSelect.focus();
+    return;
+  }
   sendButton.disabled = true;
   statusLine.textContent = "";
   const token = await freshTurnstileToken();
@@ -257,7 +344,7 @@ async function send(message) {
     const response = await fetch(`${config.apiUrl}/v1/chat`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, market }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -266,7 +353,8 @@ async function send(message) {
     }
     await readStream(response, reply);
   } catch (err) {
-    reply.textContent = err instanceof Error ? err.message : String(err);
+    reply.querySelector(".sources")?.remove(); // the answer didn't happen, so neither did its sources
+    setText(reply, err instanceof Error ? err.message : String(err));
     reply.classList.add("error");
   } finally {
     addTraceId(reply, trace.traceId);
@@ -274,8 +362,8 @@ async function send(message) {
   }
 }
 
-// Parses the API's server-sent events: `data: {"delta": "..."}`, then `event: done` or
-// `event: error` with `data: {"error": "..."}`.
+// Parses the API's server-sent events: `event: sources` first, then `data: {"delta": "..."}`, then
+// `event: done` or `event: error` with `data: {"error": "..."}`.
 async function readStream(response, reply) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -297,9 +385,10 @@ async function readStream(response, reply) {
       }
       const payload = data ? JSON.parse(data) : {};
       if (event === "error") throw new Error(ERRORS[payload.error] || "Error.");
+      if (event === "sources") addSources(reply, payload.sources || []);
       if (event === "message" && payload.delta) {
         text += payload.delta;
-        reply.textContent = text;
+        setText(reply, text);
       }
     }
   }
@@ -321,6 +410,7 @@ input.addEventListener("keydown", (e) => {
 });
 
 // Turnstile's script loads with `defer` after this one; render the widget once it's there.
+loadMarkets();
 setUpSignIn();
 
 window.addEventListener("load", () => {
