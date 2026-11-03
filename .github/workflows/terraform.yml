@@ -296,12 +296,19 @@ jobs:
             gcloud artifacts docker images delete "$repo@$digest" --delete-tags --quiet
             deleted=$((deleted + 1))
           done
-          size_mb=$(( $(gcloud artifacts repositories describe app --location "$REGION" --format 'value(sizeBytes)') / 1000000 ))
-          echo "Registry: pruned $deleted old images, $size_mb MB stored (free to 500 MB)" >> "$GITHUB_STEP_SUMMARY"
-          # A warning, not a failure: the deploy already succeeded, and the reported size can lag
-          # a fresh delete. Two runs in a row over the limit mean the image itself is too big.
-          if [ "$size_mb" -gt 450 ]; then
-            echo "::warning::The registry stores $size_mb MB, close to or over the 500 MB free tier."
+          # A warning, not a failure: the deploy already succeeded, and the reported size lags a
+          # delete until unreferenced layers are cleaned up (about a day). Two days in a row over
+          # the limit mean the image itself is too big.
+          size_bytes="$(gcloud artifacts repositories describe app --location "$REGION" \
+            --format 'value(sizeBytes)' 2>/dev/null || true)"
+          if [[ "$size_bytes" =~ ^[0-9]+$ ]]; then
+            size_mb=$(( size_bytes / 1000000 ))
+            echo "Registry: pruned $deleted old images, $size_mb MB stored (free to 500 MB)" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$size_mb" -gt 450 ]; then
+              echo "::warning::The registry stores $size_mb MB, close to or over the 500 MB free tier."
+            fi
+          else
+            echo "Registry: pruned $deleted old images (size not reported)" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Deploy the chat page to Cloudflare Pages
         env:
