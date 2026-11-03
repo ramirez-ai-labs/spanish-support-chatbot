@@ -7,8 +7,10 @@ resource "google_project_service" "artifactregistry" {
   disable_on_destroy = false
 }
 
-# Container images for Cloud Run. Always free up to 0.5 GB of storage, so only the newest images
-# are kept; pulls from Cloud Run in the same region are free.
+# Container images for Cloud Run. Always free up to 0.5 GB of storage, so only the live image and
+# the one before it (for rollback) are kept; pulls from Cloud Run in the same region are free.
+# These policies run in the background, roughly daily, so they're only a backstop: the deploy job
+# deletes everything else as soon as the new image passes its smoke test.
 resource "google_artifact_registry_repository" "app" {
   repository_id = "app"
   location      = var.region
@@ -19,10 +21,10 @@ resource "google_artifact_registry_repository" "app" {
   cleanup_policy_dry_run = false
 
   cleanup_policies {
-    id     = "keep-latest-3"
+    id     = "keep-latest-2"
     action = "KEEP"
     most_recent_versions {
-      keep_count = 3
+      keep_count = 2
     }
   }
 
