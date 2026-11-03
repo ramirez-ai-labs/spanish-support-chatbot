@@ -8,6 +8,18 @@ one confirmed dead.
 
 ## M2 · Retrieval
 
+**The image registry went over its free tier** ([#102])
+- **What:** Artifact Registry held 16 images and 1,174 MB against a 0.5 GB free tier. The cleanup
+  policy (keep 3, delete anything older than a day) hadn't removed images 30 hours old, and the
+  e5 model ([#95]) had grown each image from 83 MB to 223 MB.
+- **Why:** cleanup policies run in the background on Google's schedule, not on each push, so on a
+  day with many deploys they fall behind.
+- **Fix:** the deploy job deletes every image except the live one and its rollback once the smoke
+  test passes, and reports the registry's size in the run summary. The policy stays as a backstop,
+  now keeping 2.
+- **Rule:** a free-tier limit is enforced by the pipeline that grows the usage, not by a
+  background policy.
+
 **A secret scanner flagged a password in CI** ([#98])
 - **What:** GitGuardian flagged the password of the throwaway Postgres container CI starts for
   tests. It guarded nothing real, but a red security check on a public repo is still a red check.
@@ -139,3 +151,4 @@ one confirmed dead.
 [#95]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/95
 [#97]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/97
 [#98]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/98
+[#102]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/102

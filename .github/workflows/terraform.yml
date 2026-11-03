@@ -217,6 +217,10 @@ jobs:
           url="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
           echo "::add-mask::$url"
           echo "URL=$url" >> "$GITHUB_ENV"
+          # The image live before this deploy is the rollback target, so the prune step keeps it.
+          previous="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+            --format 'value(spec.template.spec.containers[0].image)')"
+          echo "PREVIOUS_IMAGE=$previous" >> "$GITHUB_ENV"
           gcloud run services update "$SERVICE" --region "$REGION" --image "$IMAGE" --quiet
           echo "Deployed commit $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
       - name: Mint the deploy job's signed identity for the smoke test (tf-apply, fixed audience)
@@ -274,6 +278,31 @@ jobs:
             exit 1
           fi
           echo "Smoke test passed: /health ok, forged token and missing bot checks (chat, sign-in link) refused, and a streamed Spanish answer" >> "$GITHUB_STEP_SUMMARY"
+      - name: Prune old API images (keep the live one and the rollback; the registry is free to 0.5 GB)
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          # Runs only after the smoke test passes, so a broken deploy never deletes its rollback.
+          repo="$REGION-docker.pkg.dev/$PROJECT_ID/app/api"
+          keep="$(gcloud artifacts docker images describe "$IMAGE" --format 'value(image_summary.digest)')"
+          if [ -n "$PREVIOUS_IMAGE" ]; then
+            keep="$keep $(gcloud artifacts docker images describe "$PREVIOUS_IMAGE" \
+              --format 'value(image_summary.digest)' 2>/dev/null || true)"
+          fi
+          [ -n "${keep// /}" ] || { echo "::error::Couldn't resolve the live image's digest; nothing pruned."; exit 1; }
+          deleted=0
+          for digest in $(gcloud artifacts docker images list "$repo" --format 'value(version)'); do
+            case " $keep " in *" $digest "*) continue ;; esac
+            gcloud artifacts docker images delete "$repo@$digest" --delete-tags --quiet
+            deleted=$((deleted + 1))
+          done
+          size_mb=$(( $(gcloud artifacts repositories describe app --location "$REGION" --format 'value(sizeBytes)') / 1000000 ))
+          echo "Registry: pruned $deleted old images, $size_mb MB stored (free to 500 MB)" >> "$GITHUB_STEP_SUMMARY"
+          # A warning, not a failure: the deploy already succeeded, and the reported size can lag
+          # a fresh delete. Two runs in a row over the limit mean the image itself is too big.
+          if [ "$size_mb" -gt 450 ]; then
+            echo "::warning::The registry stores $size_mb MB, close to or over the 500 MB free tier."
+          fi
       - name: Deploy the chat page to Cloudflare Pages
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

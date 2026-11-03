@@ -439,7 +439,7 @@ The full procedure and the security test layers are in [BOOTSTRAP.md](../infra/B
 | Service | Free tier | Our use |
 | --- | --- | --- |
 | Cloud Run (request-based) | 2M requests, 180k vCPU-s, 360k GiB-s a month | Scale to zero, max 1 instance |
-| Artifact Registry | 0.5 GB | 3 newest images kept |
+| Artifact Registry | 0.5 GB | The live image and one rollback; each deploy prunes the rest |
 | Secret Manager | 6 versions, 10k accesses a month | 1 version |
 | Gemini (AI Studio) | Free tier, key in a project with **no billing** | It returns 429 at the limit instead of billing |
 | Neon Postgres + pgvector | 0.5 GB storage, 100 CU-hours a month per project; compute suspends at the limit instead of billing | Usage rows and 84 knowledge chunks (a few MB); scales to zero after 5 minutes idle |
