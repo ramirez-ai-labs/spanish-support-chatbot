@@ -30,6 +30,9 @@ COPY --from=build /app/.venv /app/.venv
 COPY core ./core
 COPY adapters ./adapters
 COPY apps ./apps
+# The market list and the docs (a few KB): the API checks each request's market against it, and
+# KNOWLEDGE_STORE=memory indexes the docs at startup.
+COPY knowledge ./knowledge
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PORT=8000 E5_MODEL_DIR=/app/models/e5
 USER app
 EXPOSE 8000

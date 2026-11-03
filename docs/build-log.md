@@ -91,6 +91,14 @@ trace and a usage record for every call, deployed by CI.
    (`knowledge/smoke.yaml`). The same smoke set runs on every PR with the real model, in memory.
    Its first run found a real miss: Spain's ATM-fee section was titled just "Cajeros", so the
    Latin American phrasing "cajero automático" didn't find it.
+9. **Retrieval in the chat** ([#88]): with a market, the API retrieves 4 chunks off the event loop,
+   sends a `sources` event, then makes the same single streamed call, with the chunks after the
+   unchanged system prompt. Unknown markets get a 400, `GET /v1/markets` serves the list, and a
+   failed retrieval stops the chat (`knowledge_unavailable`) rather than answering without the
+   policy. `market` stays optional until the page sends it (#89), so the live page kept working.
+   "I don't know" comes from the prompt, not the score threshold (0.82, which drops only noise):
+   on real Gemini, an enchilada recipe and a Spanish mortgage got "No tengo esa información" plus
+   the offer of an agent, even with weak sources attached.
 
 **Measured along the way**
 
@@ -108,9 +116,7 @@ trace and a usage record for every call, deployed by CI.
 | Smoke set, real model | 20 of 20 find their doc in the top 4; 19 first, 1 second (a 0.007 near-tie) |
 | Lowest correct match vs. highest off-topic question | **0.851** vs. **0.874** ("Dame una receta de enchiladas"): no score threshold separates them |
 
-**Still to come in M2:** retrieval in the chat API ([#88]), where "I don't know" can't rest on a
-score threshold alone (see above),
-the market selector and sources on the page ([#89]), and the close-out ([#90]).
+**Still to come in M2:** the market selector and sources on the page ([#89]), and the close-out ([#90]).
 
 [v0.0.1]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.0.1
 [v0.1.0]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.1.0

@@ -1,16 +1,22 @@
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from adapters.shared.hash_embedder import HashEmbedder
 from adapters.shared.mock_llm import MOCK_REPLY, MockLLM
-from apps.api.main import build_llm, create_app
+from apps.api.main import KNOWLEDGE, build_llm, build_retriever, create_app
 from core.chat import SYSTEM_PROMPT
+from core.knowledge import load_markets
+from core.retrieval import RetrievedChunk, Retriever
+
+MARKETS = load_markets(KNOWLEDGE / "markets.yaml")
 
 
-def parse_sse(body: str) -> list[tuple[str, dict[str, str]]]:
+def parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
     events = []
     for block in body.strip().split("\n\n"):
         name, data = "message", "{}"
@@ -126,3 +132,90 @@ def test_build_llm_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("LLM_PROVIDER", "nope")
     with pytest.raises(ValueError, match="Unknown LLM_PROVIDER"):
         build_llm()
+
+
+@pytest.fixture
+def rag(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """The real knowledge docs indexed in memory, as local runs do, with the hash embedder."""
+    monkeypatch.setenv("KNOWLEDGE_STORE", "memory")
+    return TestClient(create_app(llm=MockLLM(), retriever=build_retriever(HashEmbedder(), MARKETS)))
+
+
+def test_markets_are_served_from_config(client: TestClient) -> None:
+    assert client.get("/v1/markets").json() == {
+        "markets": [
+            {"code": "US", "name": "Estados Unidos"},
+            {"code": "MX", "name": "México"},
+            {"code": "SV", "name": "El Salvador"},
+            {"code": "ES", "name": "España"},
+        ]
+    }
+
+
+@pytest.mark.parametrize("market", ["CO", "mx", ""])
+def test_an_unknown_market_is_refused_before_anything_streams(rag: TestClient, market: str) -> None:
+    response = rag.post("/v1/chat", json={"message": "hola", "market": market})
+    assert (response.status_code, response.json()) == (400, {"error": "unknown_market"})
+
+
+def test_sources_arrive_before_the_answer_and_end_with_done(rag: TestClient) -> None:
+    events = parse_sse(
+        rag.post("/v1/chat", json={"message": "¿Cómo bloqueo mi tarjeta?", "market": "MX"}).text
+    )
+    names = [name for name, _ in events]
+    assert names[0] == "sources" and names[-1] == "done" and "message" in names
+    sources = events[0][1]["sources"]
+    assert sources and set(sources[0]) == {"title", "section", "market"}  # no IDs or scores
+
+
+def test_the_same_question_in_two_markets_cites_different_policies(rag: TestClient) -> None:
+    def sources(market: str) -> list[dict[str, str]]:
+        body = rag.post("/v1/chat", json={"message": "Comisiones de la cuenta", "market": market})
+        return parse_sse(body.text)[0][1]["sources"]
+
+    us, mx = sources("US"), sources("MX")
+    assert {s["market"] for s in us} <= {"US", "all"}
+    assert {s["market"] for s in mx} <= {"MX", "all"}
+    assert us != mx
+
+
+def test_without_a_market_there_are_no_sources(rag: TestClient) -> None:
+    events = parse_sse(rag.post("/v1/chat", json={"message": "hola"}).text)
+    assert "sources" not in [name for name, _ in events]
+
+
+def test_a_failed_retrieval_becomes_a_generic_error_event(caplog: pytest.LogCaptureFixture) -> None:
+    class BrokenStore:
+        def search(
+            self, vector: Sequence[float], markets: Sequence[str], k: int, model: str
+        ) -> list[RetrievedChunk]:
+            raise ConnectionError("detail with user text")
+
+    retriever = Retriever(HashEmbedder(), BrokenStore(), MARKETS)
+    client = TestClient(create_app(llm=MockLLM(), retriever=retriever))
+    with caplog.at_level(logging.WARNING):
+        body = client.post("/v1/chat", json={"message": "hola", "market": "US"}).text
+
+    assert parse_sse(body) == [("error", {"error": "knowledge_unavailable"})]
+    assert "knowledge_error type=ConnectionError" in caplog.text
+    assert "detail with user text" not in caplog.text
+
+
+def test_build_retriever_is_off_by_default_and_needs_an_embedder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("KNOWLEDGE_STORE", raising=False)
+    assert build_retriever(HashEmbedder(), MARKETS) is None
+    monkeypatch.setenv("KNOWLEDGE_STORE", "memory")
+    with pytest.raises(ValueError, match="needs an EMBEDDER"):
+        build_retriever(None, MARKETS)
+    monkeypatch.setenv("KNOWLEDGE_STORE", "nope")
+    with pytest.raises(ValueError, match="Unknown KNOWLEDGE_STORE"):
+        build_retriever(HashEmbedder(), MARKETS)
+
+
+def test_the_score_threshold_comes_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KNOWLEDGE_STORE", "memory")
+    monkeypatch.setenv("RETRIEVAL_MIN_SCORE", "0.82")
+    retriever = build_retriever(HashEmbedder(), MARKETS)
+    assert retriever is not None and retriever.min_score == 0.82

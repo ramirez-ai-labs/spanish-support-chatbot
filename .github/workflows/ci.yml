@@ -114,13 +114,22 @@ jobs:
           hide-progress: true
       - name: The baked e5 model loads and ranks a Spanish passage correctly
         run: docker run --rm spanish-support-chatbot:ci python -m adapters.shared.e5 check /app/models/e5
-      - name: Smoke test with the mock LLM and e5 loaded at startup
+      - name: Smoke test with the mock LLM, and e5 retrieving from the docs indexed in memory
         run: |
-          docker run -d --name api -p 8000:8000 -e LLM_PROVIDER=mock -e EMBEDDER=e5 spanish-support-chatbot:ci
-          for i in $(seq 1 60); do curl -sf localhost:8000/health && break; sleep 1; done
+          docker run -d --name api -p 8000:8000 -e LLM_PROVIDER=mock -e EMBEDDER=e5 \
+            -e KNOWLEDGE_STORE=memory -e RETRIEVAL_MIN_SCORE=0.82 spanish-support-chatbot:ci
+          # Starts serving once the 84 chunks are embedded: seconds here, minutes on a slow laptop.
+          for i in $(seq 1 180); do curl -sf localhost:8000/health && break; sleep 1; done
+          curl -sf localhost:8000/v1/markets | grep -q '"code":"MX"'
           curl -sfN localhost:8000/v1/chat -H 'Content-Type: application/json' \
             -d '{"message": "¿Cómo bloqueo mi tarjeta?"}' | tee reply.txt
           grep -q 'event: done' reply.txt
+          # With a market: Mexico's own sources come first, then the answer.
+          curl -sfN localhost:8000/v1/chat -H 'Content-Type: application/json' \
+            -d '{"message": "¿Cómo bloqueo mi tarjeta?", "market": "MX"}' | tee rag.txt
+          head -1 rag.txt | grep -q '^event: sources'
+          grep -q '"market": "MX"' rag.txt && ! grep -q '"market": "US"' rag.txt
+          grep -q 'event: done' rag.txt
       - name: Container logs
         if: failure()
         run: docker logs api || echo "container never started; see the build step above"
