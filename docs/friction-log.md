@@ -8,6 +8,18 @@ one confirmed dead.
 
 ## M2 · Retrieval
 
+**The deploy smoke test failed on its own quoting** ([#88])
+- **What:** the first deploy with retrieval failed its smoke test with a Python `SyntaxError`.
+  The new US-versus-MX check is Python inside a single-quoted shell string, and an apostrophe in
+  an assertion message ("another market's source") ended the string early. The API was fine: the
+  same run had already seen sources, text and `done` for the US question.
+- **Cost:** the new image stayed live (it was deployed before the test), but the steps after the
+  test were skipped, so old images weren't pruned until the next deploy.
+- **Fix:** no apostrophes in the check. The step's own script was run against a good reply and
+  two bad ones before merging the fix.
+- **Rule:** a workflow step only `prod` runs gets its logic run locally before merge, on a good
+  input and a bad one. Python inside `'...'` in shell never contains an apostrophe.
+
 **The first indexing run found the dev secrets empty** ([#86])
 - **What:** the bootstrap script created the Neon `dev` branch, then stopped: it read the new
   branch's connection string from the create response, which (unlike a new project's) has none.
@@ -174,4 +186,5 @@ one confirmed dead.
 [#97]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/97
 [#98]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/98
 [#86]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/86
+[#88]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/88
 [#102]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/102

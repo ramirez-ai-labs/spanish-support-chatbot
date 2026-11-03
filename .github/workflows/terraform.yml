@@ -274,7 +274,8 @@ jobs:
           fi
           # The same real question as a US and a Mexican customer, as the deploy probe (which skips
           # the bot check): each stream starts with sources from its own market (or all) only,
-          # carries text and ends with "done". The M2 demo, checked on every deploy.
+          # carries text and ends with "done". The M2 demo, checked on every deploy. The check below
+          # is Python in single quotes: no apostrophes in it, or the shell ends the string early.
           for m in US MX; do
             reply="$(curl -sN --max-time 90 -H 'Content-Type: application/json' -H "X-Deploy-Probe: $PROBE" \
               -d "{\"message\": \"¿Qué documentos necesito para abrir una cuenta?\", \"market\": \"$m\"}" "$url/v1/chat")"
@@ -297,8 +298,8 @@ jobs:
           assert first[0] == "event: sources", "no sources event first"
           sources = json.loads(first[1].removeprefix("data: "))["sources"]
           assert sources, "no sources"
-          assert {s["market"] for s in sources} <= {market, "all"}, "another market's source"
-          assert market in {s["market"] for s in sources}, "none of the market's own docs"' "$m" <<<"$reply"; then
+          assert {s["market"] for s in sources} <= {market, "all"}, "a source from another market"
+          assert market in {s["market"] for s in sources}, "no source from the market itself"' "$m" <<<"$reply"; then
               echo "::error::Chat for $m didn't start with sources from $m's own policy docs."
               exit 1
             fi
