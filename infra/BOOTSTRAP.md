@@ -255,6 +255,10 @@ uv run python migrations/grants.py             # read-only: each app role's priv
 unset MIGRATIONS_DATABASE_URL
 ```
 
+Once the `dev` branch exists (below), apply every migration there too: run the same commands with
+`--secret neon-owner-dev-url`. The indexing workflow checks `dev` before `main`, so both need the
+same schema.
+
 **Apply a migration before deploying code that uses it.** Migrations get their own PR. Merge it, run
 `migrate.py`, and only then merge and deploy the code that reads or writes the new schema. Deploying
 first means the app writes a column that doesn't exist yet: the write fails, and the row is lost.
@@ -268,6 +272,7 @@ connection string in its own secret without printing it. Run it again to rotate 
 bash infra/scripts/neon-role-password.sh usage_writer   # -> neon-usage-writer-url
 bash infra/scripts/neon-role-password.sh app_gcp        # -> neon-app-gcp-url
 bash infra/scripts/neon-role-password.sh indexer        # -> neon-indexer-url
+bash infra/scripts/neon-role-password.sh indexer dev    # -> neon-indexer-dev-url
 ```
 
 The secret's container must exist first (the `gcp` stack creates it), and the code that reads it
@@ -275,10 +280,10 @@ lands only after the value is in.
 
 | Role | Can | Secret | Read by |
 | --- | --- | --- | --- |
-| `chatbot_owner` | everything (Neon admin role); migrations only | `neon-owner-url` | you |
+| `chatbot_owner` | everything (Neon admin role); migrations only | `neon-owner-url`, `neon-owner-dev-url` | you |
 | `usage_writer` | `INSERT` into `llm_usage`, nothing else | `neon-usage-writer-url` | `chatbot-run` |
 | `app_gcp` | `SELECT` on `chunks`, nothing else | `neon-app-gcp-url` | `chatbot-run` |
-| `indexer` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on `chunks`, nothing else | `neon-indexer-url` | `indexer-ci` |
+| `indexer` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on `chunks`, nothing else | `neon-indexer-url`, `neon-indexer-dev-url` | `indexer-ci` |
 
 `indexer-ci` is the knowledge indexing workflow's account (ADR 0007). Google trusts it only for
 `.github/workflows/index.yml` running from `main`, through the `workflow` attribute (the token's
@@ -288,6 +293,24 @@ Actions secret `GCP_INDEXER_SA` (bootstrap output `indexer_service_account`).
 - [x] M1: migrations 0001–0002 applied; `usage_writer` password set (2026-11-01)
 - [x] M2: migration 0004 applied (2026-11-02)
 - [x] M2: `app_gcp` and `indexer` passwords set; `GCP_INDEXER_SA` added (#84, 2026-11-02)
+
+### Create the Neon `dev` branch (M2, once)
+
+The indexing workflow fills `dev` first, checks it, and only then fills `main`
+([ADR 0007](../docs/adr/0007-rag-design.md), #86). After the apply that creates the empty
+`neon-owner-dev-url` and `neon-indexer-dev-url` secrets, from the repo root:
+
+```bash
+bash infra/scripts/neon-bootstrap.sh                   # creates dev from main -> neon-owner-dev-url
+bash infra/scripts/neon-role-password.sh indexer dev   # -> neon-indexer-dev-url
+```
+
+The branch is a copy of `main`, so it already has every migration and role applied there. It has
+its own compute at 0.25 CU, which runs only while the workflow does. It keeps its own passwords:
+rotating a role on `main` doesn't change it on `dev`. The workflow never resets `dev`, which would
+need the Neon API key in CI; indexing is idempotent, so `dev` converges on every run instead.
+
+- [ ] M2: `dev` branch created; its owner and `indexer` connection strings stored (#86)
 
 ## 5. Run the bootstrap stack (locally, once per cloud)
 
