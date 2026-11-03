@@ -71,6 +71,27 @@ function settleToken(token) {
   pendingToken = null;
 }
 
+// The challenge takes a second or more, and it used to run only after Enviar. Now it starts as
+// soon as the visitor focuses or types in the message box, so the token is usually ready by the
+// time they send. Each token still works once, so the next one starts when they type again.
+const PREFETCH_MAX_AGE_MS = 4 * 60_000; // tokens expire after 5 minutes; older ones are refetched
+let prefetched = null; // Promise<{ token, at }> for the next chat send
+
+function prefetchToken() {
+  if (prefetched || widgetId === null) return;
+  prefetched = freshTurnstileToken().then((token) => ({ token, at: Date.now() }));
+}
+
+async function tokenForSend() {
+  const ready = prefetched;
+  prefetched = null; // single use: whatever happens, the next send gets a new one
+  if (ready) {
+    const { token, at } = await ready;
+    if (token && Date.now() - at < PREFETCH_MAX_AGE_MS) return token;
+  }
+  return freshTurnstileToken();
+}
+
 // --- market ---------------------------------------------------------------------------------------
 
 const MARKET = "chat.market"; // localStorage: the code of the last market chosen
@@ -306,10 +327,16 @@ function addSources(el, sources) {
   el.append(details);
 }
 
-function addTraceId(el, traceId) {
+// Where the wait went, under each answer: the bot check in the browser, then the API and the model
+// until the first word. The server's own breakdown is in the trace.
+function addTraceId(el, traceId, timing) {
+  const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`;
+  const parts = [`trace ${traceId}`];
+  if (timing.check !== undefined) parts.push(`verificación ${seconds(timing.check)}`);
+  if (timing.firstWord !== undefined) parts.push(`primera palabra ${seconds(timing.firstWord)}`);
   const span = document.createElement("span");
   span.className = "trace";
-  span.textContent = `trace ${traceId}`;
+  span.textContent = parts.join(" · ");
   el.append(span);
 }
 
@@ -323,7 +350,9 @@ async function send(message) {
   }
   sendButton.disabled = true;
   statusLine.textContent = "";
-  const token = await freshTurnstileToken();
+  const started = performance.now();
+  const token = await tokenForSend();
+  const timing = { check: performance.now() - started };
   if (!token) {
     statusLine.textContent = ERRORS.turnstile_required;
     sendButton.disabled = false;
@@ -341,6 +370,7 @@ async function send(message) {
     };
     const idToken = await currentIdToken();
     if (idToken) headers.Authorization = `Bearer ${idToken}`;
+    const sent = performance.now();
     const response = await fetch(`${config.apiUrl}/v1/chat`, {
       method: "POST",
       headers,
@@ -351,24 +381,26 @@ async function send(message) {
       if (response.status === 401) signOut(ERRORS.invalid_token);
       throw new Error(ERRORS[body.error] || `Error ${response.status}.`);
     }
-    await readStream(response, reply);
+    const firstWordAt = await readStream(response, reply);
+    if (firstWordAt !== null) timing.firstWord = firstWordAt - sent;
   } catch (err) {
     reply.querySelector(".sources")?.remove(); // the answer didn't happen, so neither did its sources
     setText(reply, err instanceof Error ? err.message : String(err));
     reply.classList.add("error");
   } finally {
-    addTraceId(reply, trace.traceId);
+    addTraceId(reply, trace.traceId, timing);
     sendButton.disabled = false;
   }
 }
 
 // Parses the API's server-sent events: `event: sources` first, then `data: {"delta": "..."}`, then
-// `event: done` or `event: error` with `data: {"error": "..."}`.
+// `event: done` or `event: error` with `data: {"error": "..."}`. Returns when the first word arrived.
 async function readStream(response, reply) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let text = "";
+  let firstWordAt = null;
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -387,11 +419,13 @@ async function readStream(response, reply) {
       if (event === "error") throw new Error(ERRORS[payload.error] || "Error.");
       if (event === "sources") addSources(reply, payload.sources || []);
       if (event === "message" && payload.delta) {
+        firstWordAt ??= performance.now();
         text += payload.delta;
         setText(reply, text);
       }
     }
   }
+  return firstWordAt;
 }
 
 form.addEventListener("submit", (e) => {
@@ -401,6 +435,9 @@ form.addEventListener("submit", (e) => {
   input.value = "";
   send(message);
 });
+
+input.addEventListener("focus", prefetchToken);
+input.addEventListener("input", prefetchToken);
 
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
