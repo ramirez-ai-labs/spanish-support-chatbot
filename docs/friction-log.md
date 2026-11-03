@@ -8,6 +8,18 @@ one confirmed dead.
 
 ## M2 · Retrieval
 
+**A smoke question missed Spain's ATM fees** ([#86])
+- **What:** on the first run with the real model, "¿Cuánto me cobran por usar un cajero
+  automático?" in Spain didn't find `es-comisiones` in the top 4. The Spanish phrasing, "sacar
+  dinero en un cajero", found it first.
+- **Why:** that section's heading was just "Cajeros", while the other three markets say "Cajeros
+  automáticos". The heading is embedded with every chunk, so its wording counts.
+- **Fix:** the heading now matches the other markets, and the question finds the doc first. The
+  check asks for the expected doc in the top 4 the model gets, not first place: e5's scores are
+  close enough that first place flips on near-ties (0.900 vs. 0.893 for SPEI in Mexico).
+- **Rule:** when a smoke question fails, fix the doc's words before the question's. Headings use
+  the words customers in every market use.
+
 **The image registry went over its free tier** ([#102])
 - **What:** Artifact Registry held 16 images and 1,174 MB against a 0.5 GB free tier. The cleanup
   policy (keep 3, delete anything older than a day) hadn't removed images 30 hours old, and the
@@ -151,4 +163,5 @@ one confirmed dead.
 [#95]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/95
 [#97]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/97
 [#98]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/98
+[#86]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/86
 [#102]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/102

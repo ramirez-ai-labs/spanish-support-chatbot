@@ -85,6 +85,12 @@ trace and a usage record for every call, deployed by CI.
    hash that includes the model), one transaction per run.
 7. **The search** ([#100]): a `KnowledgeStore` port whose contract suite proves no chunk ever comes
    from another market, against real pgvector.
+8. **Promotion through `dev`** ([#86]): the bootstrap script creates the Neon `dev` branch, and the
+   `index` workflow indexes it, checks it, and only then indexes `main`. The checks are that the store
+   matches the docs exactly, every market has chunks, and 20 fixed questions find their doc
+   (`knowledge/smoke.yaml`). The same smoke set runs on every PR with the real model, in memory.
+   Its first run found a real miss: Spain's ATM-fee section was titled just "Cajeros", so the
+   Latin American phrasing "cajero automático" didn't find it.
 
 **Measured along the way**
 
@@ -99,8 +105,11 @@ trace and a usage record for every call, deployed by CI.
 | A Mexican account question | top hit `mx-abrir-cuenta / Identificación`, cosine 0.920 |
 | Same question, El Salvador | top hit `sv-abrir-cuenta`, the other market's rules |
 | Score spread for good matches | 0.83–0.92, which is why the "I don't know" threshold is calibrated on data |
+| Smoke set, real model | 20 of 20 find their doc in the top 4; 19 first, 1 second (a 0.007 near-tie) |
+| Lowest correct match vs. highest off-topic question | **0.851** vs. **0.874** ("Dame una receta de enchiladas"): no score threshold separates them |
 
-**Still to come in M2:** the indexing workflow into Neon ([#86]), retrieval in the chat API ([#88]),
+**Still to come in M2:** retrieval in the chat API ([#88]), where "I don't know" can't rest on a
+score threshold alone (see above),
 the market selector and sources on the page ([#89]), and the close-out ([#90]).
 
 [v0.0.1]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.0.1

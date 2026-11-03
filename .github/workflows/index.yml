@@ -1,0 +1,100 @@
+name: index
+
+# Keeps Neon's knowledge chunks in step with knowledge/ (ADR 0007, #86): index the `dev` branch,
+# check it, and only then index and check `main`, from the same commit. A broken doc or a failed
+# smoke question stops before `main`, so the API never reads it.
+#
+# Runs on main only. Google trusts the indexing account (indexer-ci) for this workflow file on
+# main and nothing else, so a pull request can't run it; the same checks run on every PR in ci.yml
+# against the real model, in memory. The account can read the two indexer connection strings, and
+# the indexer role can write only `chunks`.
+on:
+  push:
+    branches: [main]
+    paths:
+      - knowledge/**
+      - core/chunking.py
+      - core/indexing.py
+      - core/index_checks.py
+      - core/knowledge.py
+      - core/retrieval.py
+      - apps/indexer/**
+      - adapters/shared/e5.py
+      - adapters/shared/neon_chunks.py
+      - adapters/shared/neon_knowledge.py
+      - .github/workflows/index.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time, never cancelled midway: each run converges the store on its own commit.
+concurrency:
+  group: index
+  cancel-in-progress: false
+
+jobs:
+  index:
+    name: index
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # keyless login as indexer-ci
+    env:
+      E5_MODEL_DIR: .models/e5
+      EMBEDDER: e5
+    defaults:
+      run:
+        # Named explicitly to get pipefail: the default shell lacks it, so a failed check piped
+        # into tee would pass.
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --no-dev
+      - name: Fetch the pinned e5 model (checksummed)
+        run: uv run python -m adapters.shared.e5 fetch "$E5_MODEL_DIR"
+      - name: Mask the project number (derived from a secret, so not masked automatically)
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+        run: |
+          number="$(echo "$WIF_PROVIDER" | cut -d/ -f2)"
+          if [ -n "$number" ]; then echo "::add-mask::$number"; fi
+      - name: Log in as the indexing account (keyless)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_INDEXER_SA }}
+
+      # dev first: set -e stops the loop at the first failure, so main is only touched after dev
+      # passed. Each connection string lives only in this step's environment, and it and its
+      # parts are masked: the job log is public, and a connection error would print the host.
+      - name: Index and check dev, then main
+        env:
+          PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          for branch in dev main; do
+            secret="neon-indexer-url"
+            if [ "$branch" = dev ]; then secret="neon-indexer-dev-url"; fi
+            url="$(gcloud secrets versions access latest --secret "$secret" --project "$PROJECT")"
+            echo "::add-mask::$url"
+            printf %s "$url" | python3 -c '
+          import sys
+          from urllib.parse import urlsplit
+          url = urlsplit(sys.stdin.read())
+          host = url.hostname or ""
+          for part in (url.password, host, host.split(".")[0], host.split(".")[0].removesuffix("-pooler")):
+              if part:
+                  print(f"::add-mask::{part}")'
+            export INDEXER_DATABASE_URL="$url"
+            { echo "### $branch"; echo; } >> "$GITHUB_STEP_SUMMARY"
+            uv run python -m apps.indexer | tee -a "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            uv run python -m apps.indexer check | tee -a "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+          done

@@ -72,6 +72,10 @@ query. These constraints shape the details:
 - **Context:** the 4 nearest chunks, keeping only those above a minimum similarity. e5's cosine
   scores bunch together, so the threshold is calibrated on the smoke set in #86 and kept in
   config, not guessed here.
+  - **Measured (#86):** no threshold separates them yet. The lowest correct match scored 0.851,
+    while an off-topic question ("Dame una receta de enchiladas") scored 0.874. A threshold can
+    only drop clear noise, so "I don't know" rests on the prompt rule below. #88 sets the value,
+    and M4 measures whether a reranker or a larger model is needed.
 - **Still one model call**, with no router. The stable system prompt comes first, for caching.
   Then come the numbered sources, then the question. The prompt tells the model to answer only
   from the sources, and to say it doesn't know and offer a person when they don't cover the
@@ -83,10 +87,14 @@ query. These constraints shape the details:
 **Indexing and promotion**
 - **Two branches:** the Neon `dev` branch is created once from `main` by the bootstrap script,
   after the roles exist, so the roles carry over. Migrations are applied to both branches.
-- **The workflow:** a GitHub Actions job runs on pushes to `main` that touch `knowledge/` or
-  `indexing/`. It indexes `dev`, checks it, then indexes `main` with the same commit.
-  - The checks are per-market chunk counts, no chunk without a market, and the retrieval smoke
-    set (#86).
+- **The workflow:** a GitHub Actions job (`index.yml`) runs on pushes to `main` that touch
+  `knowledge/` or the indexing code. It indexes `dev`, checks it, then indexes `main` with the
+  same commit.
+  - The checks: the store holds exactly the chunks the docs produce, every market has chunks, no
+    chunk is in an unknown market, and the retrieval smoke set (`knowledge/smoke.yaml`) finds
+    each question's expected doc among the 4 chunks (#86).
+  - The smoke set also runs on every PR, in memory with the real model, so a doc change that
+    breaks it fails in review.
   - Indexing is idempotent and deletes the chunks of removed docs, so `dev` converges without a
     branch reset, which would need the Neon API key.
 - **Credentials:** the job logs in keylessly through Workload Identity Federation, as a new

@@ -55,6 +55,10 @@ class ChunkStore(Protocol):
 
     def content_hashes(self) -> set[str]: ...
 
+    def market_counts(self) -> dict[str, int]:
+        """How many chunks each market has, `all` included; markets with none are left out."""
+        ...
+
     def apply(self, insert: Sequence["StoredChunk"], delete: Collection[str]) -> None: ...
 
 

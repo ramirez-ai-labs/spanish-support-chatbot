@@ -1,0 +1,45 @@
+# The retrieval smoke set (ADR 0007, #86). After indexing a Neon branch, the indexing workflow asks
+# each question in its market, and a chunk of the expected doc must be among the chunks the API
+# would give the model. A doc change that breaks one of these stops before `main`, and CI asks
+# them on every PR too. It's a smoke test, not the eval: M4's eval set measures quality.
+#
+# The same question in different markets expects that market's own doc, so the market filter is
+# checked on real differences. Questions answered by a doc for every market expect it from `all`.
+#
+# The out-of-scope questions are about things no doc covers. They aren't pass or fail: their best
+# scores are reported next to the covered questions' scores, to show whether a score threshold
+# can tell the two apart (core/retrieval.py). With e5-small it can't yet: "Dame una receta de
+# enchiladas" scores 0.874, above some correct matches (0.85).
+questions:
+  - {market: US, question: "¿Qué documentos necesito para abrir una cuenta?", expect: us-abrir-cuenta}
+  - {market: MX, question: "¿Qué documentos necesito para abrir una cuenta?", expect: mx-abrir-cuenta}
+  - {market: SV, question: "¿Qué documentos necesito para abrir una cuenta?", expect: sv-abrir-cuenta}
+  - {market: ES, question: "¿Qué documentos necesito para abrir una cuenta?", expect: es-abrir-cuenta}
+
+  - {market: US, question: "Perdí mi tarjeta, ¿cómo la bloqueo?", expect: us-bloqueo-tarjeta}
+  - {market: MX, question: "Perdí mi tarjeta, ¿cómo la bloqueo?", expect: mx-bloqueo-tarjeta}
+  - {market: SV, question: "Perdí mi tarjeta, ¿cómo la bloqueo?", expect: sv-bloqueo-tarjeta}
+  - {market: ES, question: "Perdí mi tarjeta, ¿cómo la bloqueo?", expect: es-bloqueo-tarjeta}
+
+  - {market: US, question: "¿Cuánto me cobran por usar un cajero automático?", expect: us-comisiones}
+  - {market: MX, question: "¿Cuánto me cobran por usar un cajero automático?", expect: mx-comisiones}
+  - {market: SV, question: "¿Cuánto me cobran por usar un cajero automático?", expect: sv-comisiones}
+  - {market: ES, question: "¿Cuánto me cobran por usar un cajero automático?", expect: es-comisiones}
+
+  - {market: US, question: "¿Cómo deposito un cheque desde la app?", expect: us-depositos}
+  - {market: MX, question: "¿Cómo envío dinero a otro banco por SPEI?", expect: mx-transferencias}
+  - {market: SV, question: "¿Cómo recibo una remesa del extranjero?", expect: sv-depositos}
+  - {market: ES, question: "¿Cómo hago una transferencia fuera de la zona SEPA?", expect: es-transferencias}
+
+  - {market: US, question: "Olvidé mi contraseña de la app", expect: all-acceso}
+  - {market: MX, question: "¿A qué hora puedo hablar con una persona?", expect: all-contacto}
+  - {market: SV, question: "Me llegó un mensaje sospechoso que pide mi clave", expect: all-seguridad}
+  - {market: ES, question: "¿Qué datos guardan de esta conversación?", expect: all-privacidad}
+
+out_of_scope:
+  - "¿Cuál es la tasa de interés de una hipoteca a 30 años?"
+  - "¿Me prestan dinero para comprar un coche?"
+  - "¿Cómo compro acciones en la bolsa?"
+  - "¿Qué seguro de viaje me recomiendan?"
+  - "¿Cuál es la capital de Francia?"
+  - "Dame una receta de enchiladas"

@@ -29,12 +29,17 @@ class IndexResult:
     unchanged: int
 
 
-def index(docs: Sequence[Doc], embedder: Embedder, store: ChunkStore) -> IndexResult:
+def wanted_chunks(docs: Sequence[Doc], model: str) -> dict[str, Chunk]:
+    """Every chunk the docs produce, by content hash: what the store should hold for `model`."""
     wanted: dict[str, Chunk] = {}
     for doc in docs:
         for chunk in chunk_doc(doc):
-            wanted.setdefault(chunk.content_hash(embedder.model), chunk)
+            wanted.setdefault(chunk.content_hash(model), chunk)
+    return wanted
 
+
+def index(docs: Sequence[Doc], embedder: Embedder, store: ChunkStore) -> IndexResult:
+    wanted = wanted_chunks(docs, embedder.model)
     existing = store.content_hashes()
     new_hashes = [h for h in wanted if h not in existing]
     vectors = embedder.embed_passages([wanted[h].passage() for h in new_hashes])
