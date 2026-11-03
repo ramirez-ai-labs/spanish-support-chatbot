@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from adapters.shared.hash_embedder import HashEmbedder
 from adapters.shared.mock_llm import MOCK_REPLY, MockLLM
-from apps.api.main import KNOWLEDGE, build_llm, build_retriever, create_app
+from apps.api.main import KNOWLEDGE, build_llm, build_retriever, client_timing, create_app
 from core.chat import SYSTEM_PROMPT
 from core.knowledge import load_markets
 from core.retrieval import RetrievedChunk, Retriever
@@ -219,3 +219,36 @@ def test_the_score_threshold_comes_from_config(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("RETRIEVAL_MIN_SCORE", "0.82")
     retriever = build_retriever(HashEmbedder(), MARKETS)
     assert retriever is not None and retriever.min_score == 0.82
+
+
+@pytest.mark.parametrize(
+    ("header", "attributes"),
+    [
+        ("check=1834", {"client.check_ms": 1834}),
+        (" check=0 ", {"client.check_ms": 0}),
+        ("check=120000", {"client.check_ms": 120_000}),
+        ("check=120001", {}),
+        ("check=12,check=99", {"client.check_ms": 12}),  # only as many parts as keys are read
+        ("", {}),
+        (None, {}),
+    ],
+)
+def test_client_timing_keeps_only_known_whole_milliseconds(
+    header: str | None, attributes: dict[str, int]
+) -> None:
+    assert client_timing(header) == attributes
+
+
+def test_the_page_may_send_its_timing_header_cross_origin() -> None:
+    page = "https://chat.example"
+    client = TestClient(create_app(llm=MockLLM(), origins=[page]))
+    preflight = client.options(
+        "/v1/chat",
+        headers={
+            "Origin": page,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,traceparent,x-client-timing",
+        },
+    )
+    assert preflight.status_code == 200
+    assert "x-client-timing" in preflight.headers["access-control-allow-headers"].lower()

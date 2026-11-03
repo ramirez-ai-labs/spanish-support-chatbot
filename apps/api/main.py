@@ -54,6 +54,23 @@ class SignInLinkRequest(BaseModel):
     email: str = Field(min_length=3, max_length=MAX_EMAIL_CHARS)
 
 
+# Browser-side timings the page sends with each message (X-Client-Timing: check=1234), so a trace
+# covers the wait before the request left the page, which the server can't see. Untrusted: only
+# these keys, whole milliseconds up to two minutes; anything else is ignored, never refused.
+CLIENT_TIMINGS = {"check": "client.check_ms"}  # check: the wait for the bot-check token
+MAX_CLIENT_TIMING_MS = 120_000
+
+
+def client_timing(header: str | None) -> dict[str, int]:
+    """Span attributes from an X-Client-Timing header; empty when it's missing or malformed."""
+    attributes: dict[str, int] = {}
+    for part in (header or "").split(",")[: len(CLIENT_TIMINGS)]:
+        key, _, value = part.strip().partition("=")
+        if key in CLIENT_TIMINGS and value.isdigit() and int(value) <= MAX_CLIENT_TIMING_MS:
+            attributes[CLIENT_TIMINGS[key]] = int(value)
+    return attributes
+
+
 # Status codes for the refusals the API returns before doing any work.
 SIGN_IN_STATUS = {"invalid_email": 400, "too_many_attempts": 429, "sign_in_unavailable": 503}
 
@@ -306,7 +323,13 @@ def create_app(
             CORSMiddleware,
             allow_origins=origins,
             allow_methods=["GET", "POST"],
-            allow_headers=["content-type", "authorization", "traceparent", "cf-turnstile-response"],
+            allow_headers=[
+                "content-type",
+                "authorization",
+                "traceparent",
+                "cf-turnstile-response",
+                "x-client-timing",
+            ],
             max_age=600,
         )
 
@@ -333,6 +356,7 @@ def create_app(
                 "http.request.method": "POST",
                 "http.route": "/v1/chat",
                 "chat.outcome": "incomplete",  # stays so if the client leaves mid-stream
+                **client_timing(http.headers.get("x-client-timing")),
             },
         )
 

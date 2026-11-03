@@ -328,7 +328,8 @@ function addSources(el, sources) {
 }
 
 // Where the wait went, under each answer: the bot check in the browser, then the API and the model
-// until the first word. The server's own breakdown is in the trace.
+// until the first word. The server's own breakdown is in the trace, which also gets the bot-check
+// time (X-Client-Timing), so one trace covers the whole wait.
 function addTraceId(el, traceId, timing) {
   const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`;
   const parts = [`trace ${traceId}`];
@@ -367,6 +368,7 @@ async function send(message) {
       "Content-Type": "application/json",
       "CF-Turnstile-Response": token,
       traceparent: trace.header,
+      "X-Client-Timing": `check=${Math.round(timing.check)}`, // the wait the server can't see
     };
     const idToken = await currentIdToken();
     if (idToken) headers.Authorization = `Bearer ${idToken}`;

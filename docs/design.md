@@ -228,6 +228,10 @@ Each request is one trace in Cloud Trace:
 - **`POST /v1/chat`** continues the browser's `traceparent`. It records the method, the route, the
   status code, the tier and the outcome (`done`, `error`, `incomplete` or `rejected`). It starts
   before the token check, so a refused token is still one trace, with its reason code.
+  It also records `client.check_ms`, how long the page waited for its Turnstile token before
+  sending, from the page's `X-Client-Timing` header. That wait happens before the request exists,
+  so without it a slow bot check looks like nothing at all. The header is untrusted: only a whole
+  number of milliseconds up to two minutes is kept, and anything else is ignored.
 - **`chat.model`** is its child. It records the model, the message length, the time to first token
   and the number of chunks.
 
