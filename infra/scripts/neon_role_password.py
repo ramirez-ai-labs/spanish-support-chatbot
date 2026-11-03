@@ -27,6 +27,9 @@ def main() -> int:
         return 2
 
     owner_url = sys.stdin.read().strip()
+    if not owner_url:  # e.g. the owner secret is empty; psycopg would try a local socket instead
+        print("No owner connection string on stdin: is its secret filled?", file=sys.stderr)
+        return 1
     password = secrets.token_urlsafe(32)
     with psycopg.connect(owner_url, connect_timeout=30, autocommit=True) as conn:
         exists = conn.execute("select 1 from pg_roles where rolname = %s", (role,)).fetchone()
