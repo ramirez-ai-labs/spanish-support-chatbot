@@ -13,4 +13,10 @@ answers read like each market's.
 - Sections are `##` headings: the indexer makes one chunk per section, so keep each section about
   one rule.
 
-`tests/unit/test_knowledge.py` checks every doc on every PR.
+- `smoke.yaml` holds fixed questions per market and the doc each must find. The indexing workflow
+  asks them before promoting the index to `main` (#86), and CI asks them on every PR. If a doc
+  change breaks one, fix the doc (often its headings: use the words customers use) before
+  changing the question.
+
+`tests/unit/test_knowledge.py` checks every doc on every PR, and `tests/unit/test_index_checks.py`
+checks the smoke set.

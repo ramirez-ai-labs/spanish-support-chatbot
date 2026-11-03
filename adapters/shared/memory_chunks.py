@@ -1,5 +1,6 @@
 """ChunkStore in memory, for tests and local runs without a database."""
 
+from collections import Counter
 from collections.abc import Collection, Sequence
 
 from core.indexing import StoredChunk
@@ -11,6 +12,9 @@ class MemoryChunkStore:
 
     def content_hashes(self) -> set[str]:
         return set(self.rows)
+
+    def market_counts(self) -> dict[str, int]:
+        return dict(Counter(row.chunk.market for row in self.rows.values()))
 
     def apply(self, insert: Sequence[StoredChunk], delete: Collection[str]) -> None:
         if overlap := {row.content_hash for row in insert} & set(self.rows):

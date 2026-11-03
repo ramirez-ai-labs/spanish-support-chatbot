@@ -57,6 +57,12 @@ def test_delete_removes_only_the_named_hashes(store: ChunkStore) -> None:
     assert store.content_hashes() == {b.content_hash}
 
 
+def test_market_counts_count_each_market_and_skip_empty_ones(store: ChunkStore) -> None:
+    assert store.market_counts() == {}
+    store.apply(insert=[row("Uno."), row("Dos."), row("Tres.", market="all")], delete=[])
+    assert store.market_counts() == {"MX": 2, "all": 1}
+
+
 def test_a_failed_apply_changes_nothing(store: ChunkStore) -> None:
     a, b = row("Uno."), row("Dos.")
     store.apply(insert=[a], delete=[])

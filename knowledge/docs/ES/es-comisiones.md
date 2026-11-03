@@ -10,7 +10,7 @@ effective_date: 2026-10-01
 
 La cuenta no tiene comisión de mantenimiento si domicilias tu nómina o pensión, o si recibes al menos 600 € al mes. Si no, la comisión es de 5 € al mes.
 
-## Cajeros
+## Cajeros automáticos
 
 Sacar dinero en nuestros cajeros no tiene coste. En cajeros de otras entidades, el cajero te muestra su comisión antes de confirmar; nosotros no añadimos ningún cargo.
 

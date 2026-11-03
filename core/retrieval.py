@@ -3,7 +3,9 @@
 The visitor's market must be one from knowledge/markets.yaml; docs for `all` markets are always
 included. Chunks scoring below `min_score` are dropped, so a question the docs don't cover gets
 no sources, and the model says it doesn't know instead of guessing. e5's scores bunch together
-(roughly 0.8 to 0.95), so the threshold is calibrated on data (#86), not guessed here.
+(roughly 0.8 to 0.95), so the threshold comes from data, not a guess: the smoke set's run (#86)
+found out-of-scope questions scoring above some correct matches, so no threshold separates them
+yet (docs/build-log.md).
 """
 
 from collections.abc import Collection
@@ -35,7 +37,7 @@ class Retriever:
         embedder: Embedder,
         store: KnowledgeStore,
         markets: Collection[str],
-        min_score: float = 0.0,  # off until #86 calibrates it
+        min_score: float = 0.0,  # off: no score separates covered from uncovered yet (#86)
         k: int = DEFAULT_K,
     ) -> None:
         self._embedder = embedder
