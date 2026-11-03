@@ -215,6 +215,31 @@ def test_retrieval_is_its_own_span_with_scores_and_never_text(
         assert "tarjeta" not in values.lower()  # neither the question nor any chunk text
 
 
+def test_the_pages_bot_check_wait_is_on_the_request_span() -> None:
+    chat(MockLLM(), headers={"X-Client-Timing": "check=1834"})
+    request = spans_by_name()["POST /v1/chat"]
+    assert dict(request.attributes or {})["client.check_ms"] == 1834
+
+
+def test_a_refused_request_still_records_the_pages_wait() -> None:
+    chat(MockLLM(), headers={"Authorization": "Bearer nope", "X-Client-Timing": "check=950"})
+    attributes = dict(spans_by_name()["POST /v1/chat"].attributes or {})
+    assert attributes["chat.outcome"] == "rejected" and attributes["client.check_ms"] == 950
+
+
+@pytest.mark.parametrize(
+    "header", ["check=-5", "check=1.5", "check=999999", "check=abc", "other=10", "check", "=12"]
+)
+def test_a_malformed_timing_is_ignored_and_the_chat_still_answers(header: str) -> None:
+    client = TestClient(create_app(llm=MockLLM(), flush_traces=FLUSH))
+    response = client.post(
+        "/v1/chat", json={"message": "hola"}, headers={"X-Client-Timing": header}
+    )
+    assert response.status_code == 200 and "event: done" in response.text
+    attributes = dict(spans_by_name()["POST /v1/chat"].attributes or {})
+    assert not any(key.startswith("client.") for key in attributes)
+
+
 def test_sign_in_link_is_one_span_without_the_address() -> None:
     class Sender:
         def send(self, email: str) -> None: ...
