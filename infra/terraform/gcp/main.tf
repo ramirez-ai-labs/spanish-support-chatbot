@@ -139,6 +139,41 @@ resource "google_secret_manager_secret" "neon_indexer_url" {
   depends_on = [google_project_service.secretmanager]
 }
 
+# The Neon `dev` branch, which the indexing workflow fills and checks before `main` (ADR 0007, #86).
+# Containers only: infra/scripts/neon-bootstrap.sh creates the branch and adds its owner's value;
+# neon-role-password.sh indexer dev adds the indexer's.
+# - neon-owner-dev-url: the owner on dev, for migrations. Nothing is granted, as for neon-owner-url.
+# - neon-indexer-dev-url: indexer on dev. Read by the indexing workflow's account.
+resource "google_secret_manager_secret" "neon_owner_dev_url" {
+  secret_id = "neon-owner-dev-url"
+  labels    = var.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret" "neon_indexer_dev_url" {
+  secret_id = "neon-indexer-dev-url"
+  labels    = var.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
 # Turnstile's server-side secret, which the API uses to verify the chat page's bot-check tokens.
 # Container only: infra/scripts/turnstile-secret.sh rotates the widget's secret through Cloudflare's
 # API and adds the new value. Only the runtime account can read it.
@@ -176,9 +211,16 @@ resource "google_secret_manager_secret_iam_member" "run_neon_app_gcp_url" {
   member    = "serviceAccount:${google_service_account.run.email}"
 }
 
-# The indexing workflow's account (bootstrap stack) reads the indexer's secret, and nothing else.
+# The indexing workflow's account (bootstrap stack) reads the indexer's secrets, one per branch, and
+# nothing else.
 resource "google_secret_manager_secret_iam_member" "indexer_neon_indexer_url" {
   secret_id = google_secret_manager_secret.neon_indexer_url.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:indexer-ci@${var.project_id}.iam.gserviceaccount.com"
+}
+
+resource "google_secret_manager_secret_iam_member" "indexer_neon_indexer_dev_url" {
+  secret_id = google_secret_manager_secret.neon_indexer_dev_url.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:indexer-ci@${var.project_id}.iam.gserviceaccount.com"
 }
