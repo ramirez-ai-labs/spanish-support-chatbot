@@ -188,6 +188,33 @@ def test_accepted_request_records_the_tier_and_status() -> None:
     assert attributes["http.response.status_code"] == 200
 
 
+def test_retrieval_is_its_own_span_with_scores_and_never_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from adapters.shared.hash_embedder import HashEmbedder
+    from apps.api.main import KNOWLEDGE, build_retriever
+    from core.knowledge import load_markets
+
+    monkeypatch.setenv("KNOWLEDGE_STORE", "memory")
+    retriever = build_retriever(HashEmbedder(), load_markets(KNOWLEDGE / "markets.yaml"))
+    client = TestClient(create_app(llm=MockLLM(), flush_traces=FLUSH, retriever=retriever))
+    question = "¿Cómo bloqueo mi tarjeta perdida?"
+    client.post("/v1/chat", json={"message": question, "market": "MX"})
+
+    spans = spans_by_name()
+    assert set(spans) == {"POST /v1/chat", "chat.retrieval", "chat.model"}
+    request, retrieval = spans["POST /v1/chat"], spans["chat.retrieval"]
+    assert retrieval.parent is not None and retrieval.parent.span_id == request.context.span_id
+    attributes = dict(retrieval.attributes or {})
+    assert attributes["chat.market"] == "MX"
+    assert attributes["retrieval.chunks"] == 4 and attributes["retrieval.k"] == 4
+    assert isinstance(attributes["retrieval.top_score"], float)
+    assert dict(request.attributes or {})["chat.market"] == "MX"
+    for span in spans.values():
+        values = json.dumps(dict(span.attributes or {}), ensure_ascii=False, default=str)
+        assert "tarjeta" not in values.lower()  # neither the question nor any chunk text
+
+
 def test_sign_in_link_is_one_span_without_the_address() -> None:
     class Sender:
         def send(self, email: str) -> None: ...

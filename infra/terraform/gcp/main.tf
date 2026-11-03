@@ -348,6 +348,26 @@ resource "google_cloud_run_v2_service" "api" {
         value = "e5"
       }
       env {
+        # Retrieval from Neon's chunks, filled by the indexing workflow (ADR 0007, #88)
+        name  = "KNOWLEDGE_STORE"
+        value = "neon"
+      }
+      env {
+        name = "NEON_KNOWLEDGE_URL" # app_gcp: SELECT on chunks only
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.neon_app_gcp_url.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
+        # Drops only clear noise: off-topic questions score up to 0.874 and some correct matches
+        # 0.851, so the prompt's rule says "I don't know", not this (#86, build log)
+        name  = "RETRIEVAL_MIN_SCORE"
+        value = "0.82"
+      }
+      env {
         # /v1/sign-in-link sends the email as the runtime account, behind the bot check, and the
         # link always returns to the chat page.
         name  = "SIGN_IN_SENDER"
@@ -397,6 +417,7 @@ resource "google_cloud_run_v2_service" "api" {
     google_project_service.cloudtrace,
     google_secret_manager_secret_iam_member.run_gemini_api_key,
     google_secret_manager_secret_iam_member.run_neon_usage_writer_url,
+    google_secret_manager_secret_iam_member.run_neon_app_gcp_url,
     google_secret_manager_secret_iam_member.run_turnstile_secret,
   ]
 }

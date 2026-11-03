@@ -9,7 +9,8 @@ import json
 import logging
 import os
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,8 +20,9 @@ from opentelemetry.trace import SpanKind, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from core.bot_check import BotCheckFailed
-from core.chat import MAX_MESSAGE_CHARS, ChatService
+from core.chat import MAX_MESSAGE_CHARS, ChatService, KnowledgeUnavailable, Sources
 from core.identity import ANONYMOUS, Caller, IdentityUnavailable, InvalidToken, caller_for
+from core.knowledge import Market, load_docs, load_markets
 from core.ports import (
     BotCheck,
     DeployProbe,
@@ -30,15 +32,22 @@ from core.ports import (
     SignInLinkSender,
     UsageSink,
 )
+from core.retrieval import Retriever
 from core.safety import ContentBlocked
 from core.sign_in import MAX_EMAIL_CHARS, SignInLinkFailed, looks_like_email
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# knowledge/ in the repo, and /app/knowledge in the image: the market list and the docs.
+KNOWLEDGE = Path(os.environ.get("KNOWLEDGE_DIR", Path(__file__).resolve().parents[2] / "knowledge"))
+
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
+    # A code from GET /v1/markets. Optional until the chat page sends it (#89); without it, the
+    # model answers without the market's policy, as before M2.
+    market: str | None = Field(default=None, max_length=8)
 
 
 class SignInLinkRequest(BaseModel):
@@ -160,6 +169,36 @@ def build_embedder() -> Embedder | None:
     raise ValueError(f"Unknown EMBEDDER: {choice!r} (expected 'e5', 'hash' or 'none')")
 
 
+def build_retriever(embedder: Embedder | None, markets: Mapping[str, Market]) -> Retriever | None:
+    """Pick where retrieval searches from KNOWLEDGE_STORE; none by default (tests, local runs).
+
+    - neon: the `chunks` table as the read-only app role (NEON_KNOWLEDGE_URL), filled by the
+      indexing workflow.
+    - memory: indexes knowledge/ into memory at startup, for local runs and the image's CI test.
+    RETRIEVAL_MIN_SCORE drops chunks below it; it's calibrated per embedding model (#86).
+    """
+    store = os.environ.get("KNOWLEDGE_STORE", "none")
+    if store == "none":
+        return None
+    if embedder is None:
+        raise ValueError(f"KNOWLEDGE_STORE={store} needs an EMBEDDER")
+    min_score = float(os.environ.get("RETRIEVAL_MIN_SCORE", "0"))
+    if store == "neon":
+        from adapters.shared.neon_knowledge import NeonKnowledgeStore
+
+        knowledge = NeonKnowledgeStore(os.environ["NEON_KNOWLEDGE_URL"])
+        return Retriever(embedder, knowledge, markets, min_score=min_score)
+    if store == "memory":
+        from adapters.shared.memory_chunks import MemoryChunkStore
+        from adapters.shared.memory_knowledge import MemoryKnowledgeStore
+        from core.indexing import index
+
+        chunks = MemoryChunkStore()
+        index(load_docs(KNOWLEDGE / "docs"), embedder, chunks)
+        return Retriever(embedder, MemoryKnowledgeStore(chunks.rows.values()), markets, min_score)
+    raise ValueError(f"Unknown KNOWLEDGE_STORE: {store!r} (expected 'neon', 'memory' or 'none')")
+
+
 def build_tracing() -> Callable[[], None] | None:
     """Pick the span exporter from TRACE_EXPORTER; tracing stays a no-op when it is unset."""
     exporter = os.environ.get("TRACE_EXPORTER", "none")
@@ -191,8 +230,11 @@ def create_app(
     deploy_probe: DeployProbe | None = None,
     origins: list[str] | None = None,
     sign_in: SignInLinkSender | None = None,
-    embedder: Embedder | None = None,
+    retriever: Retriever | None = None,
+    markets: Mapping[str, Market] | None = None,
 ) -> FastAPI:
+    if markets is None:
+        markets = load_markets(KNOWLEDGE / "markets.yaml")
     if llm is None:
         llm = build_llm()
         flush_traces = build_tracing()
@@ -202,8 +244,10 @@ def create_app(
         deploy_probe = build_deploy_probe()
         origins = allowed_origins()
         sign_in = build_sign_in()
-        embedder = build_embedder()  # used by retrieval from #88; loaded now to measure its cost
-    chat = ChatService(llm, usage=usage, cloud=os.environ.get("CLOUD", "local"))
+        retriever = build_retriever(build_embedder(), markets)
+    chat = ChatService(
+        llm, usage=usage, cloud=os.environ.get("CLOUD", "local"), retriever=retriever
+    )
 
     def identify(authorization: str | None) -> Caller:
         """Anonymous without a token; raises InvalidToken for a token that does not verify."""
@@ -255,15 +299,13 @@ def create_app(
         title="spanish-support-chatbot",
         telemetry={"tracing": False, "metrics": False, "logs": False},
     )
-    app.state.embedder = embedder
-
     # Only the chat page's origin may call the API from a browser. The headers are the ones the
     # page sends: its user's token, its trace context and its bot-check token.
     if origins:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=origins,
-            allow_methods=["POST"],
+            allow_methods=["GET", "POST"],
             allow_headers=["content-type", "authorization", "traceparent", "cf-turnstile-response"],
             max_age=600,
         )
@@ -272,6 +314,11 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # The page's market selector (#89): the codes chat accepts and their names, from config.
+    @app.get("/v1/markets")
+    def get_markets() -> dict[str, list[dict[str, str]]]:
+        return {"markets": [{"code": m.code, "name": m.name} for m in markets.values()]}
 
     @app.post("/v1/chat")
     def post_chat(request: ChatRequest, http: Request) -> Response:
@@ -304,6 +351,8 @@ def create_app(
                 rejection = (exc.reason, 401)
             except IdentityUnavailable:
                 rejection = ("auth_unavailable", 503)  # fail closed, but keep the page's session
+            if rejection is None and request.market is not None and request.market not in markets:
+                rejection = ("unknown_market", 400)
             if rejection is not None:
                 # The reason code only: never a token or its claims. Logged inside the span,
                 # so Cloud Logging links the line to this request's trace.
@@ -322,6 +371,7 @@ def create_app(
             {
                 "auth.tier": caller.tier.value,
                 "auth.deploy_probe": probe,
+                "chat.market": request.market or "none",
                 "http.response.status_code": 200,
             }
         )
@@ -338,8 +388,22 @@ def create_app(
 
         async def stream_chat(span: trace.Span) -> AsyncIterator[str]:
             try:
-                async for delta in chat.reply(request.message):
-                    yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+                async for event in chat.reply(request.message, request.market):
+                    if isinstance(event, Sources):
+                        # Before the first delta, so the page can show them as the answer streams.
+                        sources = [vars(source) for source in event.sources]
+                        data = json.dumps({"sources": sources}, ensure_ascii=False)
+                        yield f"event: sources\ndata: {data}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'delta': event}, ensure_ascii=False)}\n\n"
+            except KnowledgeUnavailable as exc:
+                cause = type(exc.__cause__).__name__ if exc.__cause__ else "none"
+                logger.warning("knowledge_error type=%s", cause)
+                span.set_status(Status(StatusCode.ERROR))
+                span.set_attribute("error.type", cause)
+                span.set_attribute("chat.outcome", "error")
+                yield 'event: error\ndata: {"error": "knowledge_unavailable"}\n\n'
+                return
             except ContentBlocked as exc:
                 # The page replaces anything already shown with a polite refusal. Categories only,
                 # never the text.
