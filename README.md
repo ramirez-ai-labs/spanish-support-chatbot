@@ -8,16 +8,20 @@ The goal is to show full system design, not just a chatbot: identity tiers, PII 
 eval gate in CI, tracing, cost tracking, and the same app running natively on GCP, Azure and AWS,
 all on free tiers with synthetic data only.
 
-**Status:** M1 shipped; M2 (answers from each market's policy docs) is in progress. Try it at
+**Status:** M2 shipped: answers come from each market's policy docs (US, MX, SV, ES), with
+sources under each answer. M3 (PII redaction, tools, access tiers) is next. Try it at
 https://spanish-support-chatbot.pages.dev:
 - **Behind the page:** the chat page on Cloudflare Pages calls the API on Cloud Run.
 - **Deploys:** both are deployed from CI after an approval.
 - **On every message:**
   - a bot check
+  - retrieval from that market's policy chunks in Neon pgvector
   - Gemini's content filters
   - one trace from the browser to the model
   - one usage row with its shadow cost
 
+M2 (retrieval and indexing) shipped as
+[`v0.2.0`](https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.2.0).
 M1 shipped as [`v0.1.0`](https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.1.0),
 and M0 (local bot, CI, guardrails) as
 [`v0.0.1`](https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.0.1).
@@ -32,8 +36,12 @@ Needs Docker, or [uv](https://docs.astral.sh/uv/) for the non-Docker path.
 cp .env.example .env            # add GEMINI_API_KEY, or set LLM_PROVIDER=mock to skip it
 docker compose up --build
 curl -N http://localhost:8000/v1/chat -H 'Content-Type: application/json' \
-  -d '{"message": "¿Cómo bloqueo mi tarjeta?"}'
+  -d '{"message": "¿Cómo bloqueo mi tarjeta?", "market": "MX"}'
 ```
+
+Every message names a market from `GET /v1/markets`. Compose indexes the docs in memory with e5
+at startup, so answers come with sources, but a `.env` copied from `.env.example` turns that off
+(`EMBEDDER=none`, `KNOWLEDGE_STORE=none`): set them to `e5` and `memory` to keep it.
 
 The reply streams back as server-sent events. Without Docker:
 `uv sync && uv run uvicorn --factory apps.api.main:create_app` (load `.env` first).

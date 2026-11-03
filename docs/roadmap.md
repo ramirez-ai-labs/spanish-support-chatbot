@@ -167,12 +167,13 @@ Done when: answers cite the right market's policy chunk, starting with four mark
 
 **Demo:** the same question as a US customer and a Mexican customer gets different answers, each with sources.
 
-- [ ] First: MFA on GitHub and Google (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare. Moved from M1; Azure and AWS get MFA in M7 and M8
+- MFA on GitHub and Google, then Neon and Cloudflare: moved to M3 (#36)
 - [x] 20 to 40 synthetic Spanish FAQ and policy docs, tagged by market or all: 28 docs in `knowledge/`, six topics in each of US, MX, SV and ES plus four for all (#82); the market list is config (`knowledge/markets.yaml`), so adding a country is data, not code
-- [ ] Indexing job in GitHub Actions: clean, chunk by headings, metadata, e5 `passage:` embeddings, upsert by content hash
-- [ ] Index into the Neon `dev` branch first; promote to `main` only after checks pass
-- [x] pgvector table plus HNSW index (#92); market filter on every query, enforced by the `KnowledgeStore` port and proven by its contract suite (#87); the market comes from a UI selector (#89), and from the user's profile in M3
-- [ ] e5 embedder in the API container with the `query:` prefix, baked into the image at build time (#50); citations shown in the UI
+- [x] Indexing job in GitHub Actions: chunk by headings, metadata, e5 `passage:` embeddings, upsert by content hash; only new or changed chunks are embedded (#85)
+- [x] Index into the Neon `dev` branch first; promote to `main` only after checks pass: the store matches the docs, every market has chunks, and 20 smoke questions find their doc (#86)
+- [x] pgvector table plus HNSW index (#92); market filter on every query, enforced by the `KnowledgeStore` port and proven by its contract suite (#87); the market comes from a UI selector (#89), and from the user's profile in M3; the API refuses a message without one (#113)
+- [x] e5 embedder in the API container with the `query:` prefix, baked into the image at build time (#50); citations shown under each answer in the UI (#89)
+- [x] Tag `v0.2.0` (2026-11-03): answers from each market's policy with sources, for US, MX, SV and ES
 
 ### M3 · Guardrails, agent and access control (Nov 30–Dec 13)
 
@@ -180,6 +181,7 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 
 **Demo:** a typed SSN is redacted; blocking a card is refused when anonymous and allowed after step-up.
 
+- [ ] First: MFA on GitHub and Google (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare (#36). Moved from M2, before any action tool exists; Azure and AWS get MFA in M7 and M8
 - [x] Content safety: Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content; a block becomes a polite refusal and is recorded by category, never with the text. Violent requests are refused by the model, not the filter: an input classifier is decided with the M4 safety set (#65)
 - [ ] Presidio with a Spanish model and ID patterns per market (US SSN, Mexico CURP, Colombia cédula, El Salvador DUI, Peru DNI), added as markets are added; the model is baked into the image at build time (#51)
 - [ ] PII handling: redact right after the token check; no request-body logging and no message text on spans before redaction; consistent placeholders for names (`<PERSON_1>`); scan model output too

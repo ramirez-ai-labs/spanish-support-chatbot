@@ -16,15 +16,20 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 
 ## Current status
 
-M1 shipped as `v0.1.0` (M0 as `v0.0.1`); `v0.1.1` added email-link sign-in (#63, #72) and GitHub
-settings as code (#21). M2 (RAG + indexing) is next. Live today:
+M2 shipped as `v0.2.0` (M1 as `v0.1.0`, M0 as `v0.0.1`; `v0.1.1` added email-link sign-in and
+GitHub settings as code). M3 (guardrails, agent, access) is next, starting with MFA (#36) and
+Presidio in the image (#51). Live today:
 
 - the chat page on Cloudflare Pages (a fresh Turnstile token per send, browser-started traces)
   calling the API on Cloud Run
 - optional email-link sign-in (Identity Platform), giving the signed-in and step-up tiers; the API
   sends the link behind Turnstile, and the page's browser key can only complete sign-in
-- on every call: the token check (anonymous without a token), the bot check, Gemini's content
-  filters, one trace in Cloud Trace, and one usage row in Neon with its shadow cost
+- on every call: the token check (anonymous without a token), the bot check, the market check,
+  retrieval of that market's top 4 chunks (e5 in the container, Neon pgvector as `app_gcp`) sent
+  as sources, Gemini's content filters, one trace in Cloud Trace, and one usage row in Neon with
+  its shadow cost
+- the `index` workflow: chunks `knowledge/`, embeds changed chunks, fills the Neon `dev` branch,
+  checks it, then `main` (as the `indexer` role)
 - the stacks: `bootstrap` (applied locally; also GitHub settings and custom IAM roles), `gcp` and
   `shared` (Cloudflare), applied by CI;
   Neon is scripted, with roles and grants in `migrations/` (ADR 0006)
