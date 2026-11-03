@@ -310,7 +310,7 @@ its own compute at 0.25 CU, which runs only while the workflow does. It keeps it
 rotating a role on `main` doesn't change it on `dev`. The workflow never resets `dev`, which would
 need the Neon API key in CI; indexing is idempotent, so `dev` converges on every run instead.
 
-- [ ] M2: `dev` branch created; its owner and `indexer` connection strings stored (#86)
+- [x] M2: `dev` branch created; its owner and `indexer` connection strings stored (#86, 2026-11-02)
 
 ## 5. Run the bootstrap stack (locally, once per cloud)
 

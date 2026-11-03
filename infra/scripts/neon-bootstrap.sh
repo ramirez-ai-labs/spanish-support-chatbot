@@ -136,31 +136,27 @@ unset owner_url
 # while the indexing workflow does and then scales to zero, so it uses a few minutes of the free
 # compute hours per run. Indexing is idempotent, so dev never needs resetting (which would need
 # this API key in CI).
-dev_url=""
+# Its connection string is always asked for separately: unlike creating a project, creating a
+# branch doesn't return one.
 dev_id="$(branch_id dev)"
 if [ -z "$dev_id" ]; then
   echo "Creating the dev branch from main..."
-  response="$(neon -X POST "$API/projects/$project_id/branches" -d "{
+  dev_id="$(neon -X POST "$API/projects/$project_id/branches" -d "{
     \"branch\": {\"name\": \"dev\", \"parent_id\": \"$(branch_id main)\"},
     \"endpoints\": [{
       \"type\": \"read_write\",
       \"autoscaling_limit_min_cu\": 0.25,
       \"autoscaling_limit_max_cu\": 0.25
     }]
-  }")"
-  dev_id="$(field branch.id <<<"$response")"
-  dev_url="$(field connection_uris.0.connection_uri <<<"$response")"
-  unset response
+  }" | field branch.id)"
   echo "Created the dev branch ($dev_id)."
 else
   echo "The dev branch already exists ($dev_id); leaving it as it is."
 fi
 
 if [ "$(enabled_versions "$DEV_SECRET")" = "0" ]; then
-  if [ -z "$dev_url" ]; then
-    dev_url="$(neon "$API/projects/$project_id/connection_uri?branch_id=$dev_id&database_name=$DATABASE&role_name=$OWNER" |
-      field uri)"
-  fi
+  dev_url="$(neon "$API/projects/$project_id/connection_uri?branch_id=$dev_id&database_name=$DATABASE&role_name=$OWNER" |
+    field uri)"
   printf %s "$dev_url" | gcloud secrets versions add "$DEV_SECRET" --project "$GCP_PROJECT_ID" \
     --data-file=- --quiet >/dev/null
   echo "Stored the dev owner connection string in Secret Manager ($DEV_SECRET)."

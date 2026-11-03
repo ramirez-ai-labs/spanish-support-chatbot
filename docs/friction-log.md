@@ -8,6 +8,16 @@ one confirmed dead.
 
 ## M2 · Retrieval
 
+**The first indexing run found the dev secrets empty** ([#86])
+- **What:** the bootstrap script created the Neon `dev` branch, then stopped: it read the new
+  branch's connection string from the create response, which (unlike a new project's) has none.
+  The `dev` secrets stayed empty, so the `index` workflow failed reading them, before touching
+  `main`. The password script then got an empty owner URL and tried a local socket.
+- **Fix:** the script always asks Neon for the connection string separately, so a fresh run and
+  a rerun take the same path. The password script refuses an empty owner URL.
+- **Rule:** a script's first run and its rerun share one code path, so the path a rerun proves
+  is the one a first run takes. Don't rely on the shape of a create response.
+
 **A smoke question missed Spain's ATM fees** ([#86])
 - **What:** on the first run with the real model, "¿Cuánto me cobran por usar un cajero
   automático?" in Spain didn't find `es-comisiones` in the top 4. The Spanish phrasing, "sacar
