@@ -181,7 +181,6 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 
 **Demo:** a typed SSN is redacted; blocking a card is refused when anonymous and allowed after step-up.
 
-- [ ] First: MFA on GitHub and Google (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare (#36). Moved from M2, before any action tool exists; Azure and AWS get MFA in M7 and M8
 - [x] Content safety: Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content; a block becomes a polite refusal and is recorded by category, never with the text. Violent requests are refused by the model, not the filter: an input classifier is decided with the M4 safety set (#65)
 - [ ] Presidio with a Spanish model and ID patterns per market (US SSN, Mexico CURP, Colombia cédula, El Salvador DUI, Peru DNI), added as markets are added; the model is baked into the image at build time (#51)
 - [ ] PII handling: redact right after the token check; no request-body logging and no message text on spans before redaction; consistent placeholders for names (`<PERSON_1>`); scan model output too
@@ -199,6 +198,7 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 - [ ] Audit log of every action: who, what, when, decision
 - [ ] Human-handoff rule: low retrieval score, repeated question or frustration
 - [ ] Firestore sessions keyed to `sub`, with random IDs and a 30-day TTL
+- [ ] Last: MFA on GitHub and Google (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare (#36). Moved from M2, and from the start of M3 to its end, since redaction, sessions and the read-only tool add no new power to the owner's login. It still gates the action tools: `block_card` and `open_ticket` don't deploy until it's done. Azure and AWS get MFA in M7 and M8
 
 ### M4 · Evaluation quality gate (Dec 14–20)
 
