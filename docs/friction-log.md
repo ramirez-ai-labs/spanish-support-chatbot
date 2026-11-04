@@ -8,6 +8,40 @@ one confirmed dead.
 
 ## M2 · Retrieval
 
+**The image wouldn't start on a newer Docker** ([#112])
+- **What:** on a Windows machine with Docker Desktop's buildx 0.38, the API container exited at
+  startup: ONNX Runtime couldn't open the e5 model (error 13, permission denied). That BuildKit
+  applies `ADD --chmod=644` to the parent directories it creates as well, so `/app/models/e5` had
+  no `x` bit and the non-root user couldn't enter it. The runners' BuildKit doesn't, so CI and
+  prod were fine.
+- **How it surfaced:** a local smoke run "passed" with every request getting status `000`; the
+  script never checked that the server came up. The second run waited for `/health` and printed
+  the container's logs when it didn't.
+- **Fix:** the Dockerfile creates the directory before the `ADD`s.
+- **Rule:** `ADD --chmod` only ever targets a directory that already exists. A smoke script fails
+  if the server never became healthy, rather than testing a dead port.
+
+**A smoke check couldn't fail** ([#113])
+- **What:** the CI image smoke test checked Mexico's sources with
+  `grep -q MX && ! grep -q US`. Under `bash -e`, which Actions uses, a failure inside an `&&`
+  list doesn't stop the step, so that line passed whatever the answer said. Found while adding
+  the `market_required` check the same way.
+- **Fix:** both checks are `if … then exit 1`, and each was run locally against a good reply and
+  a bad one.
+- **Rule:** an assertion in a workflow step is an `if` that exits, never an `&&` chain.
+
+**The Windows setup lost `uv` to the antivirus** (local)
+- **What:** on a new Windows machine, the script install of `uv` built the venv, then the
+  antivirus quarantined `uv.exe`, so every `uv run` failed while the venv itself still worked.
+  A plain `uv sync` afterwards also removed the GCP extras, since CI installs with
+  `--all-extras`.
+- **Fix:** `winget install --id astral-sh.uv -e` (a signed package, with its hash verified), then
+  `uv sync --frozen --all-extras`. Git Bash's `curl` on Windows also sends non-ASCII command-line
+  arguments in the console's code page, so local requests with Spanish text send their JSON from
+  a UTF-8 file (`--data-binary @body.json`).
+- **Rule:** on Windows, install uv with winget and sync with `--all-extras`, as CI does. Never turn
+  off the antivirus to get past it.
+
 **The deploy smoke test failed on its own quoting** ([#88])
 - **What:** the first deploy with retrieval failed its smoke test with a Python `SyntaxError`.
   The new US-versus-MX check is Python inside a single-quoted shell string, and an apostrophe in
@@ -188,3 +222,5 @@ one confirmed dead.
 [#86]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/86
 [#88]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/issues/88
 [#102]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/102
+[#112]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/112
+[#113]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/113

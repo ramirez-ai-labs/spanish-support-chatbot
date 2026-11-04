@@ -1,6 +1,6 @@
 # Design: Spanish support chatbot
 
-Nov 1, 2026 · @Victor Ramirez · Status: living document, first version (M1)
+Nov 3, 2026 · @Victor Ramirez · Status: living document, updated for M2 (`v0.2.0`)
 
 This doc explains how the system works and why it is shaped this way. Scope and schedule live in
 the [roadmap](roadmap.md); individual decisions live in the [ADRs](adr/README.md). Each section
@@ -84,8 +84,8 @@ The per-cloud mapping of every layer is in the [roadmap](roadmap.md#architecture
 
 ### 3.1 Live system today
 
-Only what is deployed and running, as of `v0.1.1`. Presidio, sessions, retrieval and tools are
-not built yet.
+Only what is deployed and running, as of `v0.2.0`. Presidio, sessions and tools are not built
+yet.
 
 ```mermaid
 flowchart LR
@@ -97,15 +97,18 @@ flowchart LR
     end
 
     subgraph gcp["Google Cloud project"]
-        run["Cloud Run API, as chatbot-run<br/>/v1/chat and /v1/sign-in-link"]
+        run["Cloud Run API, as chatbot-run<br/>/v1/chat, /v1/markets, /v1/sign-in-link<br/>e5 embedder in the container"]
         idp["Identity Platform<br/>email-link sign-in"]
-        secrets["Secret Manager<br/>Gemini key, Turnstile secret,<br/>usage_writer URL"]
+        secrets["Secret Manager<br/>Gemini key, Turnstile secret,<br/>usage_writer and app_gcp URLs"]
         obs["Cloud Trace and Logging"]
     end
 
+    gh["GitHub Actions: index workflow<br/>as the indexer role"]
     gemini["Gemini 3.5 Flash-Lite<br/>AI Studio free tier"]
-    neon["Neon Postgres, AWS us-east-1<br/>llm_usage, model_prices"]
+    neon["Neon Postgres, AWS us-east-1<br/>chunks (pgvector), llm_usage, model_prices"]
 
+    gh -- "upsert changed chunks:<br/>dev branch, checks, then main" --> neon
+    run -- "top 4 chunks for one market<br/>SELECT only, app_gcp" --> neon
     visitor -- "loads page" --> pages
     visitor -- "solves challenge" --> turnstile
     visitor -- "HTTPS, CORS: page origin only" --> run
@@ -144,17 +147,21 @@ flowchart LR
     end
 
     subgraph ours["Our stores"]
+        chunks[("Neon chunks")]
         neon[("Neon llm_usage")]
         obs[("Cloud Trace and Logging")]
     end
 
     page <--> store
-    page -- "message text, Turnstile token,<br/>ID token, traceparent" --> checks
+    page -- "message text, market, Turnstile token,<br/>ID token, traceparent" --> checks
     page -- "email address, Turnstile token" --> checks
     checks -- "Turnstile token only" --> cfv
-    checks -- "message text only:<br/>the token stops here" --> core
+    checks -- "message text and market only:<br/>the token stops here" --> core
     checks -- "email address only" --> signin
-    core -- "system prompt and message text" --> gemini
+    core -- "query vector, market, k:<br/>no text" --> chunks
+    chunks -- "policy chunks" --> core
+    core -- "system prompt, policy chunks<br/>and message text" --> gemini
+    core -- "sources: title, section, market" --> page
     gemini -- "streamed answer" --> core
     core -- "streamed answer" --> page
     signin -- "email address, fixed return URL" --> idp
@@ -166,7 +173,9 @@ flowchart LR
 
 | Data | Goes to | Never goes to |
 | --- | --- | --- |
-| Message text | The API, then Gemini | Spans, logs, usage rows. It isn't stored: there are no sessions until M3 |
+| Message text | The API, which embeds it in the container, then Gemini | Neon (only its vector goes there), spans, logs, usage rows. It isn't stored: there are no sessions until M3 |
+| Query vector | Neon `chunks`, as the read-only `app_gcp` role, with the market | Logs, spans |
+| Policy chunks | The API, then Gemini after the system prompt; their title, section and market go to the page as sources | Spans (only their count and top score) |
 | ID token | The API, which verifies it and keeps only `sub`, `auth_time` and the tier | The model, logs, spans |
 | Refresh token | The page's `sessionStorage` and Google's token endpoint | The API |
 | Email address | The API, then Identity Platform, which sends the link and keeps the account | Logs, spans, error replies, usage rows |
@@ -199,6 +208,16 @@ system prompt, and one Gemini call streams the answer back as server-sent events
 then `event: done`). On a provider failure the client gets a generic `model_unavailable` event, and
 the log records only the error type and status code.
 
+**Live since M2:** every message carries the visitor's market, chosen on the page from
+`GET /v1/markets`. No market is `400 market_required`, and one that isn't in the list is
+`400 unknown_market`, both after the token and bot checks and before anything streams. The API
+embeds the question with e5 (`query:` prefix) and takes the market's top 4 chunks from Neon,
+off the event loop. It sends them first as an `event: sources` (title, section and market, with
+no IDs or scores), then makes the same single streamed call with the chunks after the unchanged
+system prompt. If retrieval fails, the chat stops with `knowledge_unavailable` instead of answering
+without the policy. "I don't know" comes from the prompt, not a score cutoff: correct and
+off-topic matches overlap (0.851 vs. 0.874), so the 0.82 threshold drops only noise.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -213,11 +232,15 @@ sequenceDiagram
     V->>P: types a question, presses Enviar
     P->>T: execute the widget
     T-->>P: fresh single-use token
-    P->>A: POST /v1/chat with message, Turnstile token, traceparent, optional Bearer token
+    P->>A: POST /v1/chat with message, market, Turnstile token, traceparent, optional Bearer token
     A->>A: token check: anonymous, signed in or step-up, else 401
     A->>T: siteverify the Turnstile token
     T-->>A: success and hostname, else 403, or 503 if unreachable
-    A->>G: one streamed call: system prompt and message
+    A->>A: market in the list, else 400; embed the question with e5 (query:)
+    A->>N: top 4 chunks for this market, as app_gcp
+    N-->>A: policy chunks
+    A-->>P: SSE event sources: title, section, market
+    A->>G: one streamed call: system prompt, policy chunks and message
     G-->>A: answer chunks, or a safety block
     A-->>P: SSE data deltas, then event done or error
     A->>N: one llm_usage row, after the stream
@@ -232,8 +255,11 @@ Each request is one trace in Cloud Trace:
   sending, from the page's `X-Client-Timing` header. That wait happens before the request exists,
   so without it a slow bot check looks like nothing at all. The header is untrusted: only a whole
   number of milliseconds up to two minutes is kept, and anything else is ignored.
-- **`chat.model`** is its child. It records the model, the message length, the time to first token
-  and the number of chunks.
+- **`chat.retrieval`** is its child (M2). It records the market, `k`, the score threshold, the
+  number of chunks returned and the top score, so the time before the model call shows up as its
+  own stage.
+- **`chat.model`** is its child too. It records the model, the message length, the time to first
+  token and the number of chunks.
 
 Spans carry sizes and timings, never message text, and errors only by type. Log lines are JSON
 with the trace ID, so Cloud Logging shows them under their trace.
@@ -266,7 +292,7 @@ down by stage.
 | 2b | Content safety | Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content. A blocked answer becomes a polite Spanish refusal that replaces anything already shown, and is recorded as outcome `blocked` with its categories, never the text. Violent requests are refused by the model itself; an input classifier is decided with the M4 safety set | M1 (live) |
 | 3 | Redaction | Presidio removes PII, including each market's ID numbers (SSN, CURP, cédula, DUI, DNI). Redaction events are logged by type, never by value | M3 |
 | 4 | Session | Recent turns loaded from the session store | M3 |
-| 5 | Retrieval | e5-small embeds the question (`query:` prefix); Neon returns 3 to 5 chunks, **always filtered by market** | M2 |
+| 5 | Retrieval | multilingual-e5-small, in the container, embeds the question (`query:` prefix); Neon returns the top 4 chunks, **always filtered by market**, with HNSW iterative scans so the filter can't leave too few ([ADR 0007](adr/0007-rag-design.md)) | M2 (live) |
 | 6 | Model | One streamed Gemini call; stable system prompt prefix for caching; thinking at minimal | M0 (live) |
 | 7 | Tools | Only if the model asks: the tier, scope and ownership checks run before any tool | M3 |
 | 8 | Output check | The model's output is scanned for PII as well | M3 |
@@ -377,12 +403,30 @@ port.
 
 ## 6. Offline path
 
-Designed, not built yet:
+**Indexing (live, M2).** The `index` workflow in GitHub Actions turns `knowledge/` into the
+`chunks` table. Apps only read it.
 
-- **Indexing (M2):** one pipeline chunks each market's policy docs, embeds them with e5-small
-  (`passage:` prefix), and writes them to Neon with their market tag. Apps only read.
-- **Evals (M4):** per-market test sets run in CI. A worse prompt, model or index fails the
-  build. The eval code comes from the existing lab repos, installed from pinned tags.
+```mermaid
+flowchart LR
+    docs["knowledge/: 28 synthetic docs,<br/>markets.yaml"] --> chunk["Chunk by section:<br/>one chunk per heading, with title,<br/>section and market"]
+    chunk --> embed["Embed new or changed chunks only<br/>e5, passage: prefix; key = hash<br/>of the text and the model"]
+    embed --> dev[("Neon dev branch")]
+    dev --> check{"Checks: store matches the docs,<br/>every market has chunks,<br/>20 smoke questions find their doc"}
+    check -- "pass" --> main[("Neon main")]
+    check -- "fail" --> stop["Stop: main untouched"]
+```
+
+- **Who can write:** the workflow runs as the `indexer` role, which can write `chunks` and
+  nothing else, through an account Google trusts only for `index.yml` on `main`. The API's
+  `app_gcp` role can only read `chunks`.
+- **One transaction per run:** a failed run leaves the previous index whole. A rerun with nothing
+  changed embeds nothing (84 unchanged).
+- **The same smoke set runs on every PR** with the real model, in memory, so a doc edit that breaks
+  retrieval fails before it merges.
+- **Adding a market is data:** a line in `markets.yaml` and its docs, then a run of the workflow.
+
+**Evals (designed, M4):** per-market test sets run in CI. A worse prompt, model or index fails the
+build. The eval code comes from the existing lab repos, installed from pinned tags.
 
 ## 7. Infrastructure and delivery (live)
 
@@ -449,7 +493,7 @@ The full procedure and the security test layers are in [BOOTSTRAP.md](../infra/B
 | Neon Postgres + pgvector | 0.5 GB storage, 100 CU-hours a month per project; compute suspends at the limit instead of billing | Usage rows and 84 knowledge chunks (a few MB); scales to zero after 5 minutes idle |
 | e5 embeddings | In the container: no API, no quota | ~70 ms a text on Cloud Run's CPU |
 | Cloudflare Pages + Turnstile | Free plan | The chat page and its bot check |
-| GitHub Actions | Free for public repositories | CI, deploys and (M2) indexing |
+| GitHub Actions | Free for public repositories | CI, deploys and indexing |
 
 Separately, $1 budget alerts and spend caps catch surprises.
 

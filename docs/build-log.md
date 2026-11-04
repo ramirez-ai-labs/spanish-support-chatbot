@@ -60,7 +60,7 @@ trace and a usage record for every call, deployed by CI.
   link with a role that can only send email, and the page's browser key is limited to two methods,
   so a direct call to send email is refused by Google. A deploy smoke test checks both.
 
-## M2 · Retrieval (Nov 2, in progress)
+## M2 · Retrieval (Nov 2–3, [`v0.2.0`][v0.2.0])
 
 **Goal:** answers cite the right market's policy chunk, for the US, Mexico, El Salvador and Spain.
 
@@ -102,8 +102,15 @@ trace and a usage record for every call, deployed by CI.
 10. **The page** ([#89]): a country selector built from `GET /v1/markets`, with no default: it
     asks before the first question and remembers the choice. Each answer shows its sources under
     it, collapsed, with the first doc in the summary, so a greeting's weak matches stay out of the
-    way. The CSP didn't change. The API makes `market` required in a follow-up, once this page is
-    live: the deploy updates the API a minute before the page, and open tabs keep the old script.
+    way. The CSP didn't change.
+11. **Where each answer's wait went** ([#109], [#110]): the page starts the bot check while the
+    visitor types instead of on send, and reports how long it still waited (`X-Client-Timing`),
+    which the API puts on the request span as `client.check_ms`. One trace now covers the click to
+    the first token, including the part that happens before the request exists.
+12. **`market` required** ([#113]): only once the page sending it was live, since the deploy
+    updates the API a minute before the page and open tabs keep the old script. A message without
+    one gets `400 market_required`, after the token and bot checks, so their 401 and 403 still
+    come first.
 
 **Measured along the way**
 
@@ -121,11 +128,14 @@ trace and a usage record for every call, deployed by CI.
 | Smoke set, real model | 20 of 20 find their doc in the top 4; 19 first, 1 second (a 0.007 near-tie) |
 | Lowest correct match vs. highest off-topic question | **0.851** vs. **0.874** ("Dame una receta de enchiladas"): no score threshold separates them |
 
-**Still to come in M2:** `market` required in the API, and the close-out ([#90]).
+**The demo,** checked on every deploy: "¿Qué documentos necesito para abrir una cuenta?" asked as
+a US and as a Mexican customer. Each stream starts with sources from its own market (or all)
+only, then the answer, then `done`. The close-out is [#90].
 
 [v0.0.1]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.0.1
 [v0.1.0]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.1.0
 [v0.1.1]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.1.1
+[v0.2.0]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/releases/tag/v0.2.0
 
 [#1]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/1
 [#3]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/3
@@ -172,3 +182,6 @@ trace and a usage record for every call, deployed by CI.
 [#97]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/97
 [#98]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/98
 [#100]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/100
+[#109]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/109
+[#110]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/110
+[#113]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/113
