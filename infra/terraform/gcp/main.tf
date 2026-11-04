@@ -286,8 +286,10 @@ resource "google_cloud_run_v2_service" "api" {
 
       resources {
         limits = {
-          cpu    = "1"
-          memory = "768Mi" # 455 MiB idle with e5 loaded (#50); Cloud Run stops an instance over its limit
+          cpu = "1"
+          # 455 MiB idle with e5 (#50), plus ~310 MB for Presidio and spaCy md (ADR 0008, #51).
+          # Cloud Run stops an instance over its limit. 360k free GiB-seconds = 100 h at 1 GiB.
+          memory = "1Gi"
         }
         cpu_idle          = true # CPU only while handling requests: request-based billing
         startup_cpu_boost = false
