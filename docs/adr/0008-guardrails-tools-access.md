@@ -1,6 +1,6 @@
 # 0008. Guardrails, tools and access: redaction before anything reads the text, a capped tool loop, and confirmations the model can't give
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Milestone:** M3 (#51)
 

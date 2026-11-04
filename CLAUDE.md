@@ -17,8 +17,8 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 ## Current status
 
 M2 shipped as `v0.2.0` (M1 as `v0.1.0`, M0 as `v0.0.1`; `v0.1.1` added email-link sign-in and
-GitHub settings as code). M3 (guardrails, agent, access) is next, starting with MFA (#36) and
-Presidio in the image (#51). Live today:
+GitHub settings as code). M3 (guardrails, agent, access) is next, starting with Presidio in the
+image (#51); MFA (#36) comes last, but before the action tools deploy. Live today:
 
 - the chat page on Cloudflare Pages (a fresh Turnstile token per send, browser-started traces)
   calling the API on Cloud Run
