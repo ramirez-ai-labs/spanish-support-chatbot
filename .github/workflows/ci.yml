@@ -121,14 +121,22 @@ jobs:
           # Starts serving once the 84 chunks are embedded: seconds here, minutes on a slow laptop.
           for i in $(seq 1 180); do curl -sf localhost:8000/health && break; sleep 1; done
           curl -sf localhost:8000/v1/markets | grep -q '"code":"MX"'
-          curl -sfN localhost:8000/v1/chat -H 'Content-Type: application/json' \
-            -d '{"message": "¿Cómo bloqueo mi tarjeta?"}' | tee reply.txt
-          grep -q 'event: done' reply.txt
+          # Without a market: refused, since every answer comes from one market's policy.
+          code=$(curl -s -o refused.txt -w '%{http_code}' localhost:8000/v1/chat \
+            -H 'Content-Type: application/json' -d '{"message": "¿Cómo bloqueo mi tarjeta?"}')
+          # `if` and not `&&`: under bash -e, a failure inside an && list doesn't stop the step.
+          if [ "$code" != 400 ] || ! grep -q '"market_required"' refused.txt; then
+            echo "::error::A message without a market was not refused with 400 market_required."
+            exit 1
+          fi
           # With a market: Mexico's own sources come first, then the answer.
           curl -sfN localhost:8000/v1/chat -H 'Content-Type: application/json' \
             -d '{"message": "¿Cómo bloqueo mi tarjeta?", "market": "MX"}' | tee rag.txt
           head -1 rag.txt | grep -q '^event: sources'
-          grep -q '"market": "MX"' rag.txt && ! grep -q '"market": "US"' rag.txt
+          if ! grep -q '"market": "MX"' rag.txt || grep -q '"market": "US"' rag.txt; then
+            echo "::error::The MX answer's sources were not Mexico's own."
+            exit 1
+          fi
           grep -q 'event: done' rag.txt
       - name: Container logs
         if: failure()
