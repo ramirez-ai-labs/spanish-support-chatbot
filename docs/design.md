@@ -549,6 +549,11 @@ calculator.
   **latency** (no second network call before every answer), **quota** (no second rate limit), and
   **portability** (the same vectors from all three clouds). It costs ~140 MB of image and ~250 MB of
   memory (#50).
+- **Memory is sized by the models, and is free up to 2 GiB.** e5 and Presidio with spaCy stay
+  loaded, so no message waits on a network call to embed or redact. On Cloud Run they read 92% of
+  1 GiB at idle (#119), so the API runs at 2 GiB. Request-based billing's free tier is 180k
+  vCPU-seconds and 360k GiB-seconds a month: at 1 vCPU and 2 GiB both last exactly 50 hours of
+  request time, so CPU, not memory, is what runs out first, and the extra headroom costs nothing.
 - **At scale, the model dominates.** At the 50k-conversations-a-day target (6M questions a month),
   with ~1,500 input and ~200 output tokens a question at Flash-Lite's list price ($0.30 / $2.50 per
   1M, `model_prices`), the model costs about **$2,700 + $3,000 ≈ $5,700 a month**. Retrieval, managed
