@@ -33,6 +33,7 @@ from core.ports import (
     SignInLinkSender,
     UsageSink,
 )
+from core.redaction import Redacted, Redactor
 from core.retrieval import Retriever
 from core.safety import ContentBlocked
 from core.sign_in import MAX_EMAIL_CHARS, SignInLinkFailed, looks_like_email
@@ -191,9 +192,8 @@ def build_embedder() -> Embedder | None:
 def build_pii_detector() -> PIIDetector | None:
     """Pick the PII detector from PII_DETECTOR; none by default (tests, local runs).
 
-    Loaded once at startup, like the embedder. Not used on the chat path yet: redaction is wired
-    in next (ADR 0008), and this first lands the model so its size, memory and cold start are
-    measured on the live service (#51).
+    Loaded once at startup, like the embedder, so its ~8 s land on the cold start (#51). Required
+    on a cloud: create_app refuses to start there without one (ADR 0008).
     """
     choice = os.environ.get("PII_DETECTOR", "none")
     if choice == "none":
@@ -290,8 +290,16 @@ def create_app(
         sign_in = build_sign_in()
         retriever = build_retriever(build_embedder(), markets)
         pii_detector = build_pii_detector()
+    cloud = os.environ.get("CLOUD", "local")
+    if pii_detector is None and cloud != "local":
+        # Redaction is a guarantee, not a setting: a missing variable must not switch it off.
+        raise RuntimeError(f"PII_DETECTOR is required when CLOUD={cloud!r} (ADR 0008)")
     chat = ChatService(
-        llm, usage=usage, cloud=os.environ.get("CLOUD", "local"), retriever=retriever
+        llm,
+        usage=usage,
+        cloud=cloud,
+        retriever=retriever,
+        redactor=Redactor(pii_detector) if pii_detector is not None else None,
     )
 
     def identify(authorization: str | None) -> Caller:
@@ -344,9 +352,6 @@ def create_app(
         title="spanish-support-chatbot",
         telemetry={"tracing": False, "metrics": False, "logs": False},
     )
-    # Held, not yet used: kept referenced so the model stays loaded and the live service's memory
-    # is measured with it (#51). Redaction, the next slice, passes it to the chat service.
-    app.state.pii_detector = pii_detector
     # Only the chat page's origin may call the API from a browser. The headers are the ones the
     # page sends: its user's token, its trace context and its bot-check token.
     if origins:
@@ -393,9 +398,10 @@ def create_app(
 
         # Every call is checked: the tier comes from this request's token, not from earlier ones,
         # and then the bot check (unless it's the deploy job's own probe). Tokens stop here; only
-        # the message text goes on to the chat service and the model.
+        # the redacted message text goes on to the chat service and the model.
         caller, probe = ANONYMOUS, False
         rejection: tuple[str, int] | None = None
+        redacted: Redacted | None = None
         with trace.use_span(span, record_exception=False, set_status_on_exception=False):
             try:
                 caller = identify(http.headers.get("authorization"))
@@ -410,6 +416,17 @@ def create_app(
                 rejection = ("market_required", 400)  # the page's own word for it
             elif rejection is None and request.market not in markets:
                 rejection = ("unknown_market", 400)
+            if rejection is None:
+                # Redaction right after the checks, which don't read the text, and before anything
+                # that does. If it fails the message is refused: unredacted text goes no further.
+                try:
+                    redacted = chat.redact(request.message)
+                except Exception as exc:
+                    logger.warning("guardrails_error type=%s", type(exc).__name__)
+                    rejection = ("guardrails_unavailable", 503)
+                else:
+                    if redacted.counts:  # types and counts, never the values
+                        logger.info("pii_redacted stage=input types=%s", redacted.summary())
             if rejection is not None:
                 # The reason code only: never a token or its claims. Logged inside the span,
                 # so Cloud Logging links the line to this request's trace.
@@ -424,6 +441,7 @@ def create_app(
                     headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
                 )
             return JSONResponse({"error": reason}, status_code=status)
+        assert redacted is not None  # every path without a rejection redacted the message
         span.set_attributes(
             {
                 "auth.tier": caller.tier.value,
@@ -445,7 +463,7 @@ def create_app(
 
         async def stream_chat(span: trace.Span) -> AsyncIterator[str]:
             try:
-                async for event in chat.reply(request.message, request.market):
+                async for event in chat.reply(redacted, request.market):
                     if isinstance(event, Sources):
                         # Before the first delta, so the page can show them as the answer streams.
                         sources = [vars(source) for source in event.sources]

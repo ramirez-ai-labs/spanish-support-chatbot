@@ -2,12 +2,15 @@
 
 With a market, the question's nearest policy chunks go to the model after the stable system
 prompt, and the reply starts with a `Sources` event naming them. Without one, the model answers
-alone, as before M2: the chat page sends a market from #89, which makes it required. Guardrails and
-tools come in M3.
+alone, as before M2: the chat page sends a market from #89, which makes it required.
+
+Personal data is redacted first (ADR 0008): `redact` runs before the stream starts, and `reply`
+accepts only its `Redacted` result, so retrieval, the query vector and the model never see the raw
+text. Tools come later in M3.
 
 Each step is one span (OpenTelemetry API only, which is cloud-free), so time to first token breaks
-down by stage. Spans carry sizes, scores and timings, never message or chunk text: redaction only
-arrives in M3. Every model call also writes one usage record, after the answer has streamed.
+down by stage. Spans carry sizes, scores, counts and timings, never message or chunk text. Every
+model call also writes one usage record, after the answer has streamed.
 """
 
 import asyncio
@@ -19,6 +22,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from core.ports import LLMProvider, UsageSink
+from core.redaction import Redacted, Redactor, unredacted
 from core.retrieval import RetrievedChunk, Retriever
 from core.safety import ContentBlocked
 from core.usage import LLMUsage, Outcome, TokenUsage
@@ -36,7 +40,9 @@ SYSTEM_PROMPT = (
     "agente humano; no la completes con lo que sepas por tu cuenta. No cites las fuentes por "
     "número: el cliente las ve debajo de tu respuesta. "
     "Si el cliente solo saluda, salúdalo y pregúntale en qué puedes ayudar. "
-    "Nunca pidas números completos de tarjeta, contraseñas ni documentos de identidad."
+    "Nunca pidas números completos de tarjeta, contraseñas ni documentos de identidad. "
+    "Los marcadores como <PERSON_1> o <MX_CURP_1> son datos protegidos del cliente: no los "
+    "repitas ni intentes adivinar qué ocultan."
 )
 
 # What the prompt is made of, recorded by name (never content) with each call. Sessions add
@@ -94,18 +100,48 @@ class ChatService:
         usage: UsageSink | None = None,
         cloud: str = "local",
         retriever: Retriever | None = None,
+        redactor: Redactor | None = None,
     ):
         self._llm = llm
         self._usage = usage
         self._cloud = cloud
         self._retriever = retriever
+        self._redactor = redactor
 
-    async def reply(self, message: str, market: str | None = None) -> AsyncIterator[str | Sources]:
+    def redact(self, text: str) -> Redacted:
+        """The message with its personal data replaced, before anything else reads it.
+
+        CPU-bound (spaCy): call it off the event loop. Raises `core.pii.DetectorUnavailable` if
+        the detector fails, and the caller refuses the message: unredacted text goes no further.
+        Without a redactor (tests, local runs) the text passes as it is; the API refuses to start
+        that way on a cloud.
+        """
+        if self._redactor is None:
+            return unredacted(text)
+        # record_exception=False: a detector error can quote the text.
+        with tracer.start_as_current_span(
+            "chat.redaction", record_exception=False, set_status_on_exception=False
+        ) as span:
+            span.set_attribute("redaction.stage", "input")
+            try:
+                redacted = self._redactor.redact(text)
+            except Exception as exc:
+                span.set_status(Status(StatusCode.ERROR))
+                span.set_attribute("error.type", type(exc).__name__)
+                raise
+            span.set_attribute("redaction.count", sum(redacted.counts.values()))
+            span.set_attribute("redaction.types", sorted(redacted.counts))
+            return redacted
+
+    async def reply(
+        self, redacted: Redacted, market: str | None = None
+    ) -> AsyncIterator[str | Sources]:
         """Streams the answer's text, after a `Sources` event when the market is retrieved from.
 
         Without a market or a retriever, the model answers alone. The market must already be a
         known one; the API refuses others before streaming.
         """
+        message = redacted.text
         parts: tuple[str, ...] = PROMPT_PARTS
         prompt = message
         if market is not None and self._retriever is not None:

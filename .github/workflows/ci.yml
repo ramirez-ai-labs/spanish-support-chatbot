@@ -142,6 +142,11 @@ jobs:
             exit 1
           fi
           grep -q 'event: done' rag.txt
+          # Synthetic PII goes through the real Presidio in the image and the answer still completes.
+          curl -sfN localhost:8000/v1/chat -H 'Content-Type: application/json' \
+            -d '{"message": "Soy María Fernández, mi CURP es HEGG560427MVZRRL04 y mi correo maria.f@example.com. ¿Cómo bloqueo mi tarjeta?", "market": "MX"}' \
+            | tee pii.txt
+          grep -q 'event: done' pii.txt
       - name: Container logs
         if: failure()
         run: docker logs api || echo "container never started; see the build step above"
