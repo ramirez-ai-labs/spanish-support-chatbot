@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator, Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
 from core.identity import Caller, VerifiedToken
+from core.pii import PIISpan
 from core.tools import ToolResult, ToolSpec
 from core.usage import LLMUsage, TokenUsage
 
@@ -134,6 +135,17 @@ class SignInLinkSender(Protocol):
     """
 
     def send(self, email: str) -> None: ...
+
+
+class PIIDetector(Protocol):
+    """Finds personal data in Spanish text: where it is, what type, and how sure (ADR 0008).
+
+    Runs locally with no network call, ever. It reports every span it finds; the core picks the
+    types and threshold. Raises `core.pii.DetectorUnavailable` if it can't run, so the caller
+    fails closed. CPU-bound: the API calls it off the event loop. Never logs the text.
+    """
+
+    def detect(self, text: str) -> list[PIISpan]: ...
 
 
 class DeployProbe(Protocol):
