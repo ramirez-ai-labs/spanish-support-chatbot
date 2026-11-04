@@ -189,7 +189,7 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 - [ ] Log redaction events by type, never the value
 - [ ] Agent controller: step cap of 5, per-conversation token cap, tool allowlist, confirmation before actions
 - [ ] Fast path: no-tool questions get one model call and stream; the tool loop runs only when needed; no separate router model call
-- [ ] Parallel pre-work after the token check: redaction, query embedding and session load together (`asyncio.gather`)
+- [ ] Parallel pre-work after the token check: redaction and session load together (`asyncio.gather`), then the query embedding, from the redacted text ([ADR 0008](adr/0008-guardrails-tools-access.md): its vector goes to Neon)
 - [ ] Lean prompts: 3 to 5 chunks, trimmed history, compact system prompt kept identical at the start for prompt caching; Gemini thinking off on the hot path
 - [ ] Mock tools: `check_card_status`, `block_card`, `open_ticket`
 - [ ] Tiered access: anonymous = policy answers; signed in = read-only tools; step-up = action tools
