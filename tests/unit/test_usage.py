@@ -81,8 +81,8 @@ def test_each_chat_request_writes_one_record() -> None:
     sink = MemoryUsageSink()
     client = TestClient(create_app(llm=MockLLM(), usage=sink))
 
-    client.post("/v1/chat", json={"message": "hola"})
-    client.post("/v1/chat", json={"message": "adiós"})
+    client.post("/v1/chat", json={"message": "hola", "market": "US"})
+    client.post("/v1/chat", json={"message": "adiós", "market": "US"})
 
     assert [r.outcome for r in sink.records] == ["done", "done"]
 

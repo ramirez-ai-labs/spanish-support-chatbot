@@ -35,7 +35,7 @@ def clear_spans() -> Iterator[None]:
 
 def chat(llm: LLMProvider, message: str = "hola", headers: dict[str, str] | None = None) -> None:
     client = TestClient(create_app(llm=llm, flush_traces=FLUSH))
-    client.post("/v1/chat", json={"message": message}, headers=headers or {})
+    client.post("/v1/chat", json={"message": message, "market": "US"}, headers=headers or {})
 
 
 def spans_by_name() -> dict[str, ReadableSpan]:
@@ -233,7 +233,7 @@ def test_a_refused_request_still_records_the_pages_wait() -> None:
 def test_a_malformed_timing_is_ignored_and_the_chat_still_answers(header: str) -> None:
     client = TestClient(create_app(llm=MockLLM(), flush_traces=FLUSH))
     response = client.post(
-        "/v1/chat", json={"message": "hola"}, headers={"X-Client-Timing": header}
+        "/v1/chat", json={"message": "hola", "market": "US"}, headers={"X-Client-Timing": header}
     )
     assert response.status_code == 200 and "event: done" in response.text
     attributes = dict(spans_by_name()["POST /v1/chat"].attributes or {})

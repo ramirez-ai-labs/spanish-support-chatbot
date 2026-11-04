@@ -39,7 +39,9 @@ def test_health(client: TestClient) -> None:
 
 
 def test_chat_streams_deltas_then_done(client: TestClient) -> None:
-    response = client.post("/v1/chat", json={"message": "¿Cómo bloqueo mi tarjeta?"})
+    response = client.post(
+        "/v1/chat", json={"message": "¿Cómo bloqueo mi tarjeta?", "market": "US"}
+    )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -50,13 +52,13 @@ def test_chat_streams_deltas_then_done(client: TestClient) -> None:
 
 
 def test_chat_keeps_spanish_characters_unescaped(client: TestClient) -> None:
-    body = client.post("/v1/chat", json={"message": "hola"}).text
+    body = client.post("/v1/chat", json={"message": "hola", "market": "US"}).text
     assert "sección" in body
 
 
 @pytest.mark.parametrize("message", ["", "x" * 2001])
 def test_chat_rejects_empty_or_oversized_message(client: TestClient, message: str) -> None:
-    assert client.post("/v1/chat", json={"message": message}).status_code == 422
+    assert client.post("/v1/chat", json={"message": message, "market": "US"}).status_code == 422
 
 
 def test_provider_error_becomes_generic_error_event() -> None:
@@ -71,7 +73,11 @@ def test_provider_error_becomes_generic_error_event() -> None:
             raise RuntimeError(secret)
             yield ""
 
-    body = TestClient(create_app(llm=FailingLLM())).post("/v1/chat", json={"message": "hola"}).text
+    body = (
+        TestClient(create_app(llm=FailingLLM()))
+        .post("/v1/chat", json={"message": "hola", "market": "US"})
+        .text
+    )
 
     assert parse_sse(body) == [("error", {"error": "model_unavailable"})]
     assert secret not in body
@@ -93,7 +99,9 @@ def test_provider_error_logs_type_and_code_only(caplog: pytest.LogCaptureFixture
             yield ""
 
     with caplog.at_level(logging.WARNING, logger="apps.api.main"):
-        TestClient(create_app(llm=FailingLLM())).post("/v1/chat", json={"message": "hola"})
+        TestClient(create_app(llm=FailingLLM())).post(
+            "/v1/chat", json={"message": "hola", "market": "US"}
+        )
 
     assert "llm_error type=ProviderError code=401" in caplog.text
     assert secret not in caplog.text
@@ -111,7 +119,9 @@ def test_system_prompt_is_passed_to_provider() -> None:
             seen.append(system)
             yield "ok"
 
-    TestClient(create_app(llm=RecordingLLM())).post("/v1/chat", json={"message": "hola"})
+    TestClient(create_app(llm=RecordingLLM())).post(
+        "/v1/chat", json={"message": "hola", "market": "US"}
+    )
 
     assert seen == [SYSTEM_PROMPT]
 
@@ -179,9 +189,9 @@ def test_the_same_question_in_two_markets_cites_different_policies(rag: TestClie
     assert us != mx
 
 
-def test_without_a_market_there_are_no_sources(rag: TestClient) -> None:
-    events = parse_sse(rag.post("/v1/chat", json={"message": "hola"}).text)
-    assert "sources" not in [name for name, _ in events]
+def test_a_message_without_a_market_is_refused_before_anything_streams(rag: TestClient) -> None:
+    response = rag.post("/v1/chat", json={"message": "hola"})
+    assert (response.status_code, response.json()) == (400, {"error": "market_required"})
 
 
 def test_a_failed_retrieval_becomes_a_generic_error_event(caplog: pytest.LogCaptureFixture) -> None:
