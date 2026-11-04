@@ -14,7 +14,9 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --extra "$CLOUD"
 
 FROM python:3.12-slim
-RUN useradd --create-home --uid 10001 app
+# The model directory exists before ADD: newer BuildKit applies ADD's --chmod=644 to the parent
+# directories it creates as well, and a directory without x can't be entered by the app user.
+RUN useradd --create-home --uid 10001 app && mkdir -p /app/models/e5
 WORKDIR /app
 # multilingual-e5-small, int8 ONNX (ADR 0007), pinned by revision and checksum (the same pins as
 # adapters/shared/e5.py; a test keeps them in step). Their own early layers, so every image version
