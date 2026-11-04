@@ -84,8 +84,8 @@ The per-cloud mapping of every layer is in the [roadmap](roadmap.md#architecture
 
 ### 3.1 Live system today
 
-Only what is deployed and running, as of `v0.2.0` plus M3's first slices: input redaction is
-live; output scanning, sessions and tools are not built yet.
+Only what is deployed and running, as of `v0.2.0` plus M3's first slices: redaction of the
+message and of the answer is live; sessions and tools are not built yet.
 
 ```mermaid
 flowchart LR
@@ -189,7 +189,8 @@ Two consequences shape the rest of the design:
   improve its products, which is one reason every document, test and eval in this project is
   synthetic. Since M3, Presidio redacts each message before retrieval and the model, so names,
   IDs, cards, emails and phone numbers are replaced with placeholders before the text leaves the
-  API ([ADR 0008](adr/0008-guardrails-tools-access.md)). Output scanning follows.
+  API ([ADR 0008](adr/0008-guardrails-tools-access.md)). The answer is scanned on its way back, so
+  an ID the model writes never reaches the page either.
 - **The device is untrusted.** Anything the page holds (tokens, the pending email) can be read
   by a script on the page, which is why the CSP allows scripts only from the page itself and
   Turnstile, and why the browser key can do nothing but complete a sign-in.
@@ -292,7 +293,7 @@ down by stage.
 | 1 | Edge | Turnstile token checked; the browser sends `traceparent` | M1 |
 | 2 | Identity | JWT validated on **every** call; no token means the anonymous tier | M1 |
 | 2b | Content safety | Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content. A blocked answer becomes a polite Spanish refusal that replaces anything already shown, and is recorded as outcome `blocked` with its categories, never the text. Violent requests are refused by the model itself; an input classifier is decided with the M4 safety set | M1 (live) |
-| 3 | Redaction | Presidio with spaCy `es_core_news_md`, in the container with no network call, finds PII; the core replaces an allowlist of types at score ≥ 0.4 with `<TYPE_n>` placeholders: names, email, phone, cards, IBAN, and every market's IDs (US SSN and ITIN, Mexico's CURP and CLABE, El Salvador's DUI, Spain's NIF and NIE; Colombia's cédula and Peru's DNI with their markets). Our IDs must pass their check digits. Places, dates and amounts stay. `reply` only accepts the redacted text, so the query vector is built from it too. If the detector fails the message is refused (`503 guardrails_unavailable`), and a cloud deploy without a detector refuses to start. Logged by type and count, never by value ([ADR 0008](adr/0008-guardrails-tools-access.md)) | M3 (input live; output next) |
+| 3 | Redaction | Presidio with spaCy `es_core_news_md`, in the container with no network call, finds PII; the core replaces an allowlist of types at score ≥ 0.4 with `<TYPE_n>` placeholders: names, email, phone, cards, IBAN, and every market's IDs (US SSN and ITIN, Mexico's CURP and CLABE, El Salvador's DUI, Spain's NIF and NIE; Colombia's cédula and Peru's DNI with their markets). Our IDs must pass their check digits. Places, dates and amounts stay. `reply` only accepts the redacted text, so the query vector is built from it too. If the detector fails the message is refused (`503 guardrails_unavailable`), and a cloud deploy without a detector refuses to start. Logged by type and count, never by value ([ADR 0008](adr/0008-guardrails-tools-access.md)). **The answer is scanned too** as it streams, with the pattern recognizers only (no NER, ~0.6 ms a chunk): the last 64 characters are held back so an ID split across chunks is caught whole, and anything found, or any placeholder the model repeats, becomes «[dato protegido]». A scan failure ends the answer without the held-back text. `chat.time_to_first_text_ms` measures what the hold-back adds to the visitor's wait | M3 (live) |
 | 4 | Session | Recent turns loaded from the session store | M3 |
 | 5 | Retrieval | multilingual-e5-small, in the container, embeds the question (`query:` prefix); Neon returns the top 4 chunks, **always filtered by market**, with HNSW iterative scans so the filter can't leave too few ([ADR 0007](adr/0007-rag-design.md)) | M2 (live) |
 | 6 | Model | One streamed Gemini call; stable system prompt prefix for caching; thinking at minimal | M0 (live) |

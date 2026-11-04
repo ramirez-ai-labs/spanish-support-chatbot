@@ -8,7 +8,10 @@ import pytest
 
 from core.pii import DetectorUnavailable, PIISpan
 from core.redaction import (
+    HOLDBACK,
     MIN_SCORE,
+    PROTECTED,
+    OutputScanner,
     Redactor,
     clabe_is_valid,
     curp_is_valid,
@@ -21,6 +24,9 @@ class ScriptedDetector:
 
     def __init__(self, *found: tuple[str, str, float]) -> None:
         self.found = found
+
+    def detect_patterns(self, text: str) -> list[PIISpan]:
+        return self.detect(text)
 
     def detect(self, text: str) -> list[PIISpan]:
         spans = []
@@ -135,3 +141,74 @@ def test_check_digits_accept_separators_and_refuse_other_lengths() -> None:
     assert not clabe_is_valid("01234567890123456")
     assert not dui_is_valid("1234567-4")
     assert not curp_is_valid("HEGG560427MVZRRL0")
+
+
+# The output scan: the model's answer, scanned as it streams.
+
+CARD = "4111 1111 1111 1111"
+ANSWER = (
+    f"Listo, la tarjeta {CARD} quedó bloqueada. Te avisaremos a ana@example.com cuando la nueva "
+    "esté en camino, <PERSON_1>. Si necesitas algo más, aquí estoy."
+)
+EXPECTED = (
+    "Listo, la tarjeta [dato protegido] quedó bloqueada. Te avisaremos a [dato protegido] cuando "
+    "la nueva esté en camino, [dato protegido]. Si necesitas algo más, aquí estoy."
+)
+
+
+def scanner() -> OutputScanner:
+    detector = ScriptedDetector(
+        (CARD, "CREDIT_CARD", 1.0), ("ana@example.com", "EMAIL_ADDRESS", 1.0)
+    )
+    return Redactor(detector).output_scanner()
+
+
+def stream(text: str, size: int, scan: OutputScanner | None = None) -> tuple[list[str], str]:
+    scan = scan or scanner()
+    released = [scan.feed(text[i : i + size]) for i in range(0, len(text), size)]
+    released.append(scan.finish())
+    return released, "".join(released)
+
+
+@pytest.mark.parametrize("size", [1, 2, 3, 5, 7, 13, 64, 65, 80, len(ANSWER)])
+def test_however_the_answer_is_split_the_page_gets_the_same_safe_text(size: int) -> None:
+    assert stream(ANSWER, size)[1] == EXPECTED
+
+
+def test_it_counts_what_it_replaced_by_type() -> None:
+    scan = scanner()
+    stream(ANSWER, 4, scan)
+    assert dict(scan.counts) == {"CREDIT_CARD": 1, "EMAIL_ADDRESS": 1, "PLACEHOLDER": 1}
+
+
+def test_an_answer_without_pii_passes_unchanged() -> None:
+    text = "Para bloquear tu tarjeta, entra en la app y elige «Bloquear». " * 3
+    assert stream(text, 9)[1] == text
+
+
+def test_it_holds_back_only_the_last_characters_while_streaming() -> None:
+    released, _ = stream("a" * 200, 10)
+    assert released[0] == ""  # nothing until more than HOLDBACK characters have arrived
+    assert len("".join(released[:-1])) == 200 - HOLDBACK
+    assert released[-1] == "a" * HOLDBACK
+
+
+def test_a_match_across_the_cut_waits_until_it_is_whole() -> None:
+    scan = scanner()
+    text = "x" * (HOLDBACK + 10) + CARD  # the card sits across the release point
+    out = scan.feed(text) + scan.finish()
+    assert CARD not in out
+    assert out == "x" * (HOLDBACK + 10) + PROTECTED
+
+
+def test_a_scan_failure_reaches_the_caller() -> None:
+    class Broken:
+        def detect(self, text: str) -> list[PIISpan]:
+            return []
+
+        def detect_patterns(self, text: str) -> list[PIISpan]:
+            raise DetectorUnavailable("RuntimeError")
+
+    scan = Redactor(Broken()).output_scanner()
+    with pytest.raises(DetectorUnavailable):
+        scan.feed("x" * (HOLDBACK + 1))

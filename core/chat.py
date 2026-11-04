@@ -6,7 +6,8 @@ alone, as before M2: the chat page sends a market from #89, which makes it requi
 
 Personal data is redacted first (ADR 0008): `redact` runs before the stream starts, and `reply`
 accepts only its `Redacted` result, so retrieval, the query vector and the model never see the raw
-text. Tools come later in M3.
+text. The answer is scanned as it streams, holding back its last 64 characters, so an ID the model
+writes never reaches the page whole. Tools come later in M3.
 
 Each step is one span (OpenTelemetry API only, which is cloud-free), so time to first token breaks
 down by stage. Spans carry sizes, scores, counts and timings, never message or chunk text. Every
@@ -14,6 +15,7 @@ model call also writes one usage record, after the answer has streamed.
 """
 
 import asyncio
+import logging
 import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
@@ -22,12 +24,13 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from core.ports import LLMProvider, UsageSink
-from core.redaction import Redacted, Redactor, unredacted
+from core.redaction import Redacted, Redactor, summary, unredacted
 from core.retrieval import RetrievedChunk, Retriever
 from core.safety import ContentBlocked
 from core.usage import LLMUsage, Outcome, TokenUsage
 
 tracer = trace.get_tracer(__name__)
+logger = logging.getLogger(__name__)
 
 # Kept identical across calls so the prefix can be cached once prompt caching is wired in.
 SYSTEM_PROMPT = (
@@ -151,6 +154,8 @@ class ChatService:
 
         tokens = TokenUsage()
         outcome: Outcome = "incomplete"  # stays so if the client leaves mid-stream
+        # Without a redactor (tests, local runs) there's nothing to scan for and no placeholders.
+        scanner = self._redactor.output_scanner() if self._redactor is not None else None
         ttft_ms: int | None = None
         blocked: tuple[str, ...] = ()
         # record_exception=False: the exception message can quote the user's text.
@@ -161,13 +166,30 @@ class ChatService:
             span.set_attribute("chat.message_chars", len(message))
             start = time.perf_counter()
             chunks = 0
+            shown = False
             try:
                 async for delta in self._llm.stream(SYSTEM_PROMPT, prompt, usage=tokens):
                     if chunks == 0:
                         ttft_ms = round((time.perf_counter() - start) * 1000)
                         span.set_attribute("llm.time_to_first_token_ms", ttft_ms)
                     chunks += 1
-                    yield delta
+                    # A pattern scan of ~100 characters takes 1-2 ms: on the loop, not a thread.
+                    released = scanner.feed(delta) if scanner is not None else delta
+                    if released:
+                        if not shown:  # what the visitor waits for: after the hold-back
+                            shown = True
+                            span.set_attribute(
+                                "chat.time_to_first_text_ms",
+                                round((time.perf_counter() - start) * 1000),
+                            )
+                        yield released
+                if scanner is not None and (rest := scanner.finish()):
+                    if not shown:  # a short answer is released whole, at the end
+                        span.set_attribute(
+                            "chat.time_to_first_text_ms",
+                            round((time.perf_counter() - start) * 1000),
+                        )
+                    yield rest
                 outcome = "done"
             except ContentBlocked as exc:
                 outcome, blocked = "blocked", exc.categories
@@ -180,6 +202,10 @@ class ChatService:
                 span.set_attribute("error.type", type(exc).__name__)
                 raise
             finally:
+                if scanner is not None:
+                    span.set_attribute("redaction.output_count", sum(scanner.counts.values()))
+                    if scanner.counts:  # types and counts, never the values
+                        logger.info("pii_redacted stage=output types=%s", summary(scanner.counts))
                 span.set_attribute("llm.output_chunks", chunks)
                 span.set_attribute("gen_ai.usage.input_tokens", tokens.input_tokens)
                 span.set_attribute("gen_ai.usage.output_tokens", tokens.output_tokens)

@@ -30,6 +30,8 @@ const ERRORS = {
   sign_in_unavailable: "No pudimos enviar el enlace. Inténtalo en un momento.",
   model_unavailable: "El asistente no está disponible ahora. Inténtalo en un momento.",
   knowledge_unavailable: "No pudimos consultar nuestras políticas ahora. Inténtalo en un momento.",
+  guardrails_unavailable:
+    "No pudimos proteger tus datos en este momento, así que detuvimos la respuesta. Inténtalo en un momento.",
   unknown_market: "Ese país no está disponible. Elige otro de la lista.",
   market_required: "Elige tu país antes de enviar tu pregunta.",
   markets_unavailable: "No pudimos cargar la lista de países. Recarga la página en un momento.",

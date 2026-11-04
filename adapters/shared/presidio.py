@@ -126,6 +126,13 @@ class PresidioDetector:
         self._engine = AnalyzerEngine(
             nlp_engine=nlp, registry=registry, supported_languages=[LANGUAGE]
         )
+        # For the output scan: every recognizer except spaCy's NER, run without the NLP pipeline.
+        # Typed Any: Presidio's hints require NLP artifacts, which pattern recognizers never read.
+        self._patterns: list[Any] = [
+            r
+            for r in registry.get_recognizers(language=LANGUAGE, all_fields=True)
+            if type(r).__name__ != "SpacyRecognizer"
+        ]
         # The first run loads the rest lazily: pay for it at startup, not on a customer's message.
         # The address reaches tldextract, so a setup that would go to the network fails here.
         self.detect("hola, hola@example.com")
@@ -134,6 +141,20 @@ class PresidioDetector:
         try:
             results = self._engine.analyze(text=text, language=LANGUAGE)
         except Exception as exc:  # whatever breaks inside spaCy or a recognizer, fail closed
+            raise DetectorUnavailable(type(exc).__name__) from exc
+        return [PIISpan(r.entity_type, r.start, r.end, r.score) for r in results]
+
+    def detect_patterns(self, text: str) -> list[PIISpan]:
+        try:
+            results = [
+                result
+                for recognizer in self._patterns
+                for result in recognizer.analyze(
+                    text, recognizer.supported_entities, nlp_artifacts=None
+                )
+                or []
+            ]
+        except Exception as exc:  # fail closed, as detect does
             raise DetectorUnavailable(type(exc).__name__) from exc
         return [PIISpan(r.entity_type, r.start, r.end, r.score) for r in results]
 

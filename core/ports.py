@@ -147,6 +147,11 @@ class PIIDetector(Protocol):
 
     def detect(self, text: str) -> list[PIISpan]: ...
 
+    def detect_patterns(self, text: str) -> list[PIISpan]:
+        """Only the pattern recognizers (IDs, cards, email, phone), with no NER: for the model's
+        output, scanned as it streams. Cheap enough to run on every chunk."""
+        ...
+
 
 class DeployProbe(Protocol):
     """Recognizes the deploy pipeline's own signed identity, which may skip the bot check.
