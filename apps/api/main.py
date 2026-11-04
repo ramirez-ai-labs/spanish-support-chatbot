@@ -23,6 +23,7 @@ from core.bot_check import BotCheckFailed
 from core.chat import MAX_MESSAGE_CHARS, ChatService, KnowledgeUnavailable, Sources
 from core.identity import ANONYMOUS, Caller, IdentityUnavailable, InvalidToken, caller_for
 from core.knowledge import Market, load_docs, load_markets
+from core.pii import DetectorUnavailable
 from core.ports import (
     BotCheck,
     DeployProbe,
@@ -478,6 +479,13 @@ def create_app(
                 span.set_attribute("error.type", cause)
                 span.set_attribute("chat.outcome", "error")
                 yield 'event: error\ndata: {"error": "knowledge_unavailable"}\n\n'
+                return
+            except DetectorUnavailable as exc:
+                # The output scan failed: the answer stops, and what it held back is never sent.
+                logger.warning("guardrails_error stage=output type=%s", exc)
+                span.set_status(Status(StatusCode.ERROR))
+                span.set_attribute("chat.outcome", "error")
+                yield 'event: error\ndata: {"error": "guardrails_unavailable"}\n\n'
                 return
             except ContentBlocked as exc:
                 # The page replaces anything already shown with a polite refusal. Categories only,

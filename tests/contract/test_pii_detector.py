@@ -144,3 +144,54 @@ def test_it_fails_closed() -> None:
     broken._engine = None  # type: ignore[assignment]
     with pytest.raises(DetectorUnavailable):
         broken.detect("Mi correo es maria.f@example.com")
+
+
+# detect_patterns: the output scan, with no NER.
+
+
+@pytest.mark.parametrize(
+    ("text", "entity_type", "value"),
+    [
+        ("Te escribimos a maria.f@example.com.", "EMAIL_ADDRESS", "maria.f@example.com"),
+        ("Tu tarjeta 4111 1111 1111 1111 está bloqueada.", "CREDIT_CARD", "4111 1111 1111 1111"),
+        ("Te llamaremos al +52 55 1234 5678.", "PHONE_NUMBER", "+52 55 1234 5678"),
+        ("Tu número 219-09-9999 está protegido.", "US_SSN", "219-09-9999"),
+        ("Tu CURP HEGG560427MVZRRL04 está registrada.", "MX_CURP", "HEGG560427MVZRRL04"),
+        ("La CLABE 032180000118359719 es correcta.", "MX_CLABE", "032180000118359719"),
+        ("Tu DUI 12345678-4 está registrado.", "SV_DUI", "12345678-4"),
+        ("Tu IBAN ES91 2100 0418 4502 0005 1332.", "IBAN_CODE", "ES91 2100 0418 4502 0005 1332"),
+        ("Tu NIF 12345678Z.", "ES_NIF", "12345678Z"),
+    ],
+)
+def test_the_pattern_scan_finds_each_id_type(
+    detector: PIIDetector, text: str, entity_type: str, value: str
+) -> None:
+    spans = detector.detect_patterns(text)
+    assert value in {text[s.start : s.end] for s in spans if s.entity_type == entity_type}
+    assert all(s.score >= MIN_SCORE for s in spans if s.entity_type == entity_type)
+
+
+def test_the_pattern_scan_never_reports_names(detector: PIIDetector) -> None:
+    spans = detector.detect_patterns("Claro, María Fernández, con gusto te ayudo.")
+    assert "PERSON" not in {s.entity_type for s in spans}
+
+
+def test_the_pattern_scan_fails_closed() -> None:
+    broken = PresidioDetector.__new__(PresidioDetector)
+    broken._patterns = [None]  # type: ignore[assignment]
+    with pytest.raises(DetectorUnavailable):
+        broken.detect_patterns("Tu correo es maria.f@example.com")
+
+
+def test_an_answer_streamed_one_character_at_a_time_leaks_nothing(detector: PIIDetector) -> None:
+    secrets = ["4111 1111 1111 1111", "maria.f@example.com", "HEGG560427MVZRRL04", "12345678-4"]
+    answer = (
+        f"Listo: la tarjeta {secrets[0]} quedó bloqueada y te avisaremos a {secrets[1]}. "
+        f"Tu CURP {secrets[2]} y tu DUI {secrets[3]} no cambian. ¿Algo más, <PERSON_1>?"
+    )
+    scan = Redactor(detector).output_scanner()
+    shown = "".join(scan.feed(char) for char in answer) + scan.finish()
+    assert not any(secret in shown for secret in secrets)
+    assert "<PERSON_1>" not in shown
+    assert shown.startswith("Listo: la tarjeta [dato protegido] quedó bloqueada")
+    assert shown.endswith("¿Algo más, [dato protegido]?")

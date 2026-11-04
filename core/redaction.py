@@ -14,11 +14,16 @@ A `PIIDetector` finds spans; this module decides what's removed and how:
 
 `Redacted` is the only type the chat service accepts, so raw text can't reach retrieval or the
 model by mistake. Counts are by type: never the values.
+
+The model's answer is scanned too (`OutputScanner`), with the pattern recognizers only: the model
+never sees a name, and NER on half a sentence is unreliable. Anything found, and any placeholder
+the model repeats, becomes «[dato protegido]». Placeholders are never filled back in: that would
+need the values stored, and the customer already sees what they typed.
 """
 
 import re
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from core.pii import PIISpan
@@ -42,6 +47,12 @@ REDACTED_TYPES = frozenset(
 )
 MIN_SCORE = 0.4
 
+PROTECTED = "[dato protegido]"  # what the customer sees in place of anything caught in an answer
+PLACEHOLDER = re.compile(r"<[A-Z][A-Z_]*_\d+>")  # one of ours, echoed by the model
+# Characters of the answer held back until more arrive, so an ID or a placeholder split across two
+# chunks is still whole when it's scanned. Longer than any ID we catch (an IBAN with spaces: 42).
+HOLDBACK = 64
+
 
 @dataclass(frozen=True)
 class Redacted:
@@ -51,8 +62,12 @@ class Redacted:
     counts: Mapping[str, int] = field(default_factory=dict)  # entity type -> how many removed
 
     def summary(self) -> str:
-        """For logs and spans: «EMAIL_ADDRESS:1,PERSON:2». Types and counts only."""
-        return ",".join(f"{kind}:{n}" for kind, n in sorted(self.counts.items()))
+        return summary(self.counts)
+
+
+def summary(counts: Mapping[str, int]) -> str:
+    """For logs and spans: «EMAIL_ADDRESS:1,PERSON:2». Types and counts only."""
+    return ",".join(f"{kind}:{n}" for kind, n in sorted(counts.items()) if n)
 
 
 def unredacted(text: str) -> Redacted:
@@ -96,6 +111,10 @@ class Redactor:
         counts = Counter(span.entity_type for span in spans)
         return Redacted("".join(pieces), dict(counts))
 
+    def output_scanner(self) -> "OutputScanner":
+        """A scanner for one answer, with the detector's pattern recognizers only."""
+        return OutputScanner(self._detector.detect_patterns)
+
 
 # Check digits. Each takes the value as typed (any case, with or without separators).
 
@@ -127,3 +146,51 @@ def dui_is_valid(value: str) -> bool:
         return False
     total = sum(int(d) * (9 - i) for i, d in enumerate(digits[:8]))
     return (10 - total % 10) % 10 == int(digits[8])
+
+
+class OutputScanner:
+    """Scans the model's answer as it streams, releasing only text that has been checked.
+
+    `feed` takes each chunk and returns what's safe to show now; `finish` releases the rest. The
+    last HOLDBACK characters stay until more text arrives, and the cut never falls inside a match,
+    so nothing is released half-scanned. `scan` is the detector's pattern-only method; it raises
+    if it fails, and the caller ends the answer: held-back text is never released unchecked.
+    """
+
+    def __init__(self, scan: Callable[[str], list[PIISpan]]) -> None:
+        self._scan = scan
+        self._pending = ""
+        self.counts: Counter[str] = Counter()  # what was replaced, by type ("PLACEHOLDER" too)
+
+    def feed(self, chunk: str) -> str:
+        self._pending += chunk
+        if len(self._pending) <= HOLDBACK:
+            return ""
+        return self._release(keep=HOLDBACK)
+
+    def finish(self) -> str:
+        return self._release(keep=0)
+
+    def _release(self, keep: int) -> str:
+        text = self._pending
+        spans = _chosen(self._scan(text))
+        spans += [
+            PIISpan("PLACEHOLDER", m.start(), m.end(), 1.0)
+            for m in PLACEHOLDER.finditer(text)
+            if all(m.end() <= s.start or m.start() >= s.end for s in spans)
+        ]
+        spans.sort(key=lambda s: s.start)
+        cut = len(text) - keep
+        for span in spans:  # a match across the cut waits whole: it may not be complete yet
+            if span.start < cut < span.end:
+                cut = span.start
+        pieces, cursor = [], 0
+        for span in spans:
+            if span.end > cut:
+                break
+            pieces += [text[cursor : span.start], PROTECTED]
+            self.counts[span.entity_type] += 1
+            cursor = span.end
+        pieces.append(text[cursor:cut])
+        self._pending = text[cut:]
+        return "".join(pieces)
