@@ -182,10 +182,10 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 **Demo:** a typed SSN is redacted; blocking a card is refused when anonymous and allowed after step-up.
 
 - [x] Content safety: Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content; a block becomes a polite refusal and is recorded by category, never with the text. Violent requests are refused by the model, not the filter: an input classifier is decided with the M4 safety set (#65)
-- [ ] Presidio with a Spanish model and ID patterns per market (US SSN, Mexico CURP, Colombia cédula, El Salvador DUI, Peru DNI), added as markets are added; the model is baked into the image at build time (#51)
-- [ ] PII handling: redact right after the token check; no request-body logging and no message text on spans before redaction; consistent placeholders for names (`<PERSON_1>`); scan model output too
+- [x] Presidio with a Spanish model and ID patterns per market (US SSN, Mexico CURP, Colombia cédula, El Salvador DUI, Peru DNI), added as markets are added; the model is baked into the image at build time (#51). Live: `es_core_news_md`, US SSN and ITIN, Mexico's CURP and CLABE, El Salvador's DUI and Spain's NIF and NIE, each of ours checked by its check digit; Colombia and Peru come with their markets
+- [ ] PII handling: redact right after the token check; no request-body logging and no message text on spans before redaction; consistent placeholders for names (`<PERSON_1>`); scan model output too. Input redaction is live and fails closed; placeholders are numbered per message until sessions number them per conversation; the output scan is next
 - [ ] Tools return masked data only (e.g., card ending 4417), never full numbers
-- [ ] Log redaction events by type, never the value
+- [x] Log redaction events by type, never the value: a `chat.redaction` span and one `pii_redacted` log line, with types and counts only
 - [ ] Agent controller: step cap of 5, per-conversation token cap, tool allowlist, confirmation before actions
 - [ ] Fast path: no-tool questions get one model call and stream; the tool loop runs only when needed; no separate router model call
 - [ ] Parallel pre-work after the token check: redaction and session load together (`asyncio.gather`), then the query embedding, from the redacted text ([ADR 0008](adr/0008-guardrails-tools-access.md): its vector goes to Neon)

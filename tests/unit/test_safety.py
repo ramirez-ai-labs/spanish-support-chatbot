@@ -9,6 +9,7 @@ from adapters.shared.memory_usage import MemoryUsageSink
 from adapters.shared.mock_llm import MOCK_BLOCK, MockLLM
 from apps.api.main import create_app
 from core.chat import ChatService
+from core.redaction import unredacted
 from core.safety import ContentBlocked
 
 MESSAGE = f"texto privado que no debe guardarse {MOCK_BLOCK}"
@@ -18,7 +19,7 @@ def test_a_blocked_answer_is_recorded_with_its_category_and_no_text() -> None:
     sink = MemoryUsageSink()
 
     async def consume() -> None:
-        async for _ in ChatService(MockLLM(), usage=sink).reply(MESSAGE):
+        async for _ in ChatService(MockLLM(), usage=sink).reply(unredacted(MESSAGE)):
             pass
 
     with pytest.raises(ContentBlocked):

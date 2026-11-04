@@ -21,6 +21,7 @@ from core.chat import (
 )
 from core.indexing import index
 from core.knowledge import load_docs, load_markets
+from core.redaction import unredacted
 from core.retrieval import RetrievedChunk, Retriever
 from core.usage import TokenUsage
 
@@ -50,7 +51,7 @@ def retriever(min_score: float = 0.0) -> Retriever:
 
 def run(service: ChatService, message: str, market: str | None) -> list[str | Sources]:
     async def consume() -> list[str | Sources]:
-        return [event async for event in service.reply(message, market)]
+        return [event async for event in service.reply(unredacted(message), market)]
 
     return asyncio.run(consume())
 

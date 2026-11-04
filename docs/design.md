@@ -84,8 +84,8 @@ The per-cloud mapping of every layer is in the [roadmap](roadmap.md#architecture
 
 ### 3.1 Live system today
 
-Only what is deployed and running, as of `v0.2.0`. Presidio, sessions and tools are not built
-yet.
+Only what is deployed and running, as of `v0.2.0` plus M3's first slices: input redaction is
+live; output scanning, sessions and tools are not built yet.
 
 ```mermaid
 flowchart LR
@@ -97,7 +97,7 @@ flowchart LR
     end
 
     subgraph gcp["Google Cloud project"]
-        run["Cloud Run API, as chatbot-run<br/>/v1/chat, /v1/markets, /v1/sign-in-link<br/>e5 embedder in the container"]
+        run["Cloud Run API, as chatbot-run<br/>/v1/chat, /v1/markets, /v1/sign-in-link<br/>e5 embedder and Presidio in the container"]
         idp["Identity Platform<br/>email-link sign-in"]
         secrets["Secret Manager<br/>Gemini key, Turnstile secret,<br/>usage_writer and app_gcp URLs"]
         obs["Cloud Trace and Logging"]
@@ -187,7 +187,9 @@ Two consequences shape the rest of the design:
 
 - **Gemini sees the message text.** On the free tier, Google may use prompts and answers to
   improve its products, which is one reason every document, test and eval in this project is
-  synthetic. M3 adds Presidio before the model call, so PII is redacted before it leaves the API.
+  synthetic. Since M3, Presidio redacts each message before retrieval and the model, so names,
+  IDs, cards, emails and phone numbers are replaced with placeholders before the text leaves the
+  API ([ADR 0008](adr/0008-guardrails-tools-access.md)). Output scanning follows.
 - **The device is untrusted.** Anything the page holds (tokens, the pending email) can be read
   by a script on the page, which is why the CSP allows scripts only from the page itself and
   Turnstile, and why the browser key can do nothing but complete a sign-in.
@@ -290,7 +292,7 @@ down by stage.
 | 1 | Edge | Turnstile token checked; the browser sends `traceparent` | M1 |
 | 2 | Identity | JWT validated on **every** call; no token means the anonymous tier | M1 |
 | 2b | Content safety | Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content. A blocked answer becomes a polite Spanish refusal that replaces anything already shown, and is recorded as outcome `blocked` with its categories, never the text. Violent requests are refused by the model itself; an input classifier is decided with the M4 safety set | M1 (live) |
-| 3 | Redaction | Presidio removes PII, including each market's ID numbers (SSN, CURP, cédula, DUI, DNI). Redaction events are logged by type, never by value | M3 |
+| 3 | Redaction | Presidio with spaCy `es_core_news_md`, in the container with no network call, finds PII; the core replaces an allowlist of types at score ≥ 0.4 with `<TYPE_n>` placeholders: names, email, phone, cards, IBAN, and every market's IDs (US SSN and ITIN, Mexico's CURP and CLABE, El Salvador's DUI, Spain's NIF and NIE; Colombia's cédula and Peru's DNI with their markets). Our IDs must pass their check digits. Places, dates and amounts stay. `reply` only accepts the redacted text, so the query vector is built from it too. If the detector fails the message is refused (`503 guardrails_unavailable`), and a cloud deploy without a detector refuses to start. Logged by type and count, never by value ([ADR 0008](adr/0008-guardrails-tools-access.md)) | M3 (input live; output next) |
 | 4 | Session | Recent turns loaded from the session store | M3 |
 | 5 | Retrieval | multilingual-e5-small, in the container, embeds the question (`query:` prefix); Neon returns the top 4 chunks, **always filtered by market**, with HNSW iterative scans so the filter can't leave too few ([ADR 0007](adr/0007-rag-design.md)) | M2 (live) |
 | 6 | Model | One streamed Gemini call; stable system prompt prefix for caching; thinking at minimal | M0 (live) |

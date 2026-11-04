@@ -10,6 +10,7 @@ from adapters.shared.mock_llm import MOCK_REPLY, MockLLM
 from adapters.shared.neon_usage import NeonUsageSink
 from apps.api.main import build_usage_sink, create_app
 from core.chat import PROMPT_PARTS, ChatService
+from core.redaction import unredacted
 from core.usage import LLMUsage, TokenUsage
 
 MESSAGE = "mi tarjeta termina en 4417, ¿cómo la bloqueo?"
@@ -18,7 +19,7 @@ MESSAGE = "mi tarjeta termina en 4417, ¿cómo la bloqueo?"
 def run_reply(chat: ChatService, stop_after: int | None = None) -> list[str]:
     async def consume() -> list[str]:
         out: list[str] = []
-        stream = chat.reply(MESSAGE)
+        stream = chat.reply(unredacted(MESSAGE))
         async for delta in stream:
             out.append(delta)
             if stop_after is not None and len(out) == stop_after:
