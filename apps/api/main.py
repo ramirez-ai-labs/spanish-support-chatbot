@@ -29,6 +29,7 @@ from core.ports import (
     Embedder,
     IdentityProvider,
     LLMProvider,
+    PIIDetector,
     SignInLinkSender,
     UsageSink,
 )
@@ -187,6 +188,30 @@ def build_embedder() -> Embedder | None:
     raise ValueError(f"Unknown EMBEDDER: {choice!r} (expected 'e5', 'hash' or 'none')")
 
 
+def build_pii_detector() -> PIIDetector | None:
+    """Pick the PII detector from PII_DETECTOR; none by default (tests, local runs).
+
+    Loaded once at startup, like the embedder. Not used on the chat path yet: redaction is wired
+    in next (ADR 0008), and this first lands the model so its size, memory and cold start are
+    measured on the live service (#51).
+    """
+    choice = os.environ.get("PII_DETECTOR", "none")
+    if choice == "none":
+        return None
+    if choice == "presidio":
+        from adapters.shared.presidio import SPACY_MODEL, PresidioDetector
+
+        started = time.perf_counter()
+        detector = PresidioDetector()
+        logger.info(
+            "pii_detector_loaded model=%s ms=%d",
+            SPACY_MODEL,
+            (time.perf_counter() - started) * 1000,
+        )
+        return detector
+    raise ValueError(f"Unknown PII_DETECTOR: {choice!r} (expected 'presidio' or 'none')")
+
+
 def build_retriever(embedder: Embedder | None, markets: Mapping[str, Market]) -> Retriever | None:
     """Pick where retrieval searches from KNOWLEDGE_STORE; none by default (tests, local runs).
 
@@ -250,6 +275,7 @@ def create_app(
     sign_in: SignInLinkSender | None = None,
     retriever: Retriever | None = None,
     markets: Mapping[str, Market] | None = None,
+    pii_detector: PIIDetector | None = None,
 ) -> FastAPI:
     if markets is None:
         markets = load_markets(KNOWLEDGE / "markets.yaml")
@@ -263,6 +289,7 @@ def create_app(
         origins = allowed_origins()
         sign_in = build_sign_in()
         retriever = build_retriever(build_embedder(), markets)
+        pii_detector = build_pii_detector()
     chat = ChatService(
         llm, usage=usage, cloud=os.environ.get("CLOUD", "local"), retriever=retriever
     )
@@ -317,6 +344,9 @@ def create_app(
         title="spanish-support-chatbot",
         telemetry={"tracing": False, "metrics": False, "logs": False},
     )
+    # Held, not yet used: kept referenced so the model stays loaded and the live service's memory
+    # is measured with it (#51). Redaction, the next slice, passes it to the chat service.
+    app.state.pii_detector = pii_detector
     # Only the chat page's origin may call the API from a browser. The headers are the ones the
     # page sends: its user's token, its trace context and its bot-check token.
     if origins:

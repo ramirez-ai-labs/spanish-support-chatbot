@@ -18,6 +18,8 @@ dependencies = [
     "onnxruntime>=1.23 ; platform_machine == 'arm64' or sys_platform != 'darwin'",
     "tokenizers>=0.21",
     "numpy>=2.2",
+    "presidio-analyzer>=2.2.366",
+    "es-core-news-md",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +40,9 @@ dev = [
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+es-core-news-md = { url = "https://github.com/explosion/spacy-models/releases/download/es_core_news_md-3.8.0/es_core_news_md-3.8.0-py3-none-any.whl" }
 
 [tool.ruff]
 line-length = 100

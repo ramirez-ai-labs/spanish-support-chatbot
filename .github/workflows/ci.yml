@@ -96,7 +96,9 @@ jobs:
         run: docker build --tag spanish-support-chatbot:ci .
       - name: Image size budget (keeps cold starts fast and the registry inside its free 0.5 GB)
         run: |
-          budget_mb=650 # uncompressed: 226 MB at M1, 594 MB with e5 (#50); raised again for Presidio (#51)
+          # Uncompressed: 226 MB at M1, 594 MB with e5 (#50), ~920 MB with Presidio and spaCy md (#51).
+          # The registry's limit is on compressed layers: 340 MB for this image (#51).
+          budget_mb=1000
           size_mb=$(( $(docker image inspect spanish-support-chatbot:ci --format '{{.Size}}') / 1000000 ))
           echo "Image size: ${size_mb} MB uncompressed (budget ${budget_mb} MB)" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ "$size_mb" -gt "$budget_mb" ]; then
@@ -114,9 +116,11 @@ jobs:
           hide-progress: true
       - name: The baked e5 model loads and ranks a Spanish passage correctly
         run: docker run --rm spanish-support-chatbot:ci python -m adapters.shared.e5 check /app/models/e5
+      - name: Presidio and its Spanish model load offline and catch PII in a synthetic message
+        run: docker run --rm --network none spanish-support-chatbot:ci python -m adapters.shared.presidio check
       - name: Smoke test with the mock LLM, and e5 retrieving from the docs indexed in memory
         run: |
-          docker run -d --name api -p 8000:8000 -e LLM_PROVIDER=mock -e EMBEDDER=e5 \
+          docker run -d --name api -p 8000:8000 -e LLM_PROVIDER=mock -e EMBEDDER=e5 -e PII_DETECTOR=presidio \
             -e KNOWLEDGE_STORE=memory -e RETRIEVAL_MIN_SCORE=0.82 spanish-support-chatbot:ci
           # Starts serving once the 84 chunks are embedded: seconds here, minutes on a slow laptop.
           for i in $(seq 1 180); do curl -sf localhost:8000/health && break; sleep 1; done

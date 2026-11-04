@@ -18,6 +18,7 @@ services:
       # Retrieval as in production, with the docs indexed in memory at startup: seconds on Linux,
       # but a couple of minutes in Docker Desktop on an older laptop. KNOWLEDGE_STORE=none skips it.
       EMBEDDER: ${EMBEDDER:-e5}
+      PII_DETECTOR: ${PII_DETECTOR:-presidio}
       KNOWLEDGE_STORE: ${KNOWLEDGE_STORE:-memory}
       RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.82}
     healthcheck:

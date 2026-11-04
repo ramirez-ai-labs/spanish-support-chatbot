@@ -350,6 +350,12 @@ resource "google_cloud_run_v2_service" "api" {
         value = "e5"
       }
       env {
+        # Presidio with spaCy es_core_news_md, installed in the image and loaded at startup
+        # (ADR 0008, #51); needs the 1 GiB above
+        name  = "PII_DETECTOR"
+        value = "presidio"
+      }
+      env {
         # Retrieval from Neon's chunks, filled by the indexing workflow (ADR 0007, #88)
         name  = "KNOWLEDGE_STORE"
         value = "neon"
