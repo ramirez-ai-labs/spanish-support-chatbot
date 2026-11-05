@@ -311,7 +311,7 @@ The tier is decided from the validated token on each call, never from the conver
 | Tier | How you get it | What you can do |
 | --- | --- | --- |
 | Anonymous | No token | Policy answers only |
-| Signed in | Valid JWT (email sign-in) | Read-only tools, e.g. card status |
+| Signed in | Valid JWT (email sign-in) | Read-only tools, e.g. card status; can ask for an action, which runs only after step-up ([ADR 0008](adr/0008-guardrails-tools-access.md)) |
 | Step-up | Signed in **and** `auth_time` within the last 5 minutes (email code or re-login) | Action tools, e.g. block a card, open a ticket |
 
 Rules every tool follows:

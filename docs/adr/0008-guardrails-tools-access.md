@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-03
+- **Amended:** 2026-11-05: action tools are offered to every signed-in caller, so step-up can be reached
 - **Milestone:** M3 (#51)
 
 ## Context
@@ -106,16 +107,19 @@ text on the dev machine (Windows). #51 measures again in the Linux image.
 
 - **Anonymous callers keep today's path:** no tools are offered, so it's one streamed call.
 - **Signed-in callers:**
-  - The same single call also carries the declarations from `list_tools(caller)`.
+  - The same single call also carries the declarations from `list_tools(caller)`: every tool,
+    action tools included, whether or not the caller has step-up right now.
   - If the model answers in text, it streams as now: still one call and no router.
-  - If it asks for a tool, the loop runs: check, call, send the result back, call the model again.
+  - If it asks for a read-only tool, the loop runs: check, call, send the result back, call the
+    model again.
+  - If it asks for an action tool, nothing runs, and the turn goes to confirmation (below).
 - **Caps:**
   - 5 model calls per message (the step cap) and 3 tool calls per step.
   - A per-conversation input-token cap, which hands off when reached.
   - Each model call writes its own `llm_usage` row, with `tools` and `tool_results` in
     `prompt_parts`.
 - **The core owns the loop.** The SDK's automatic function calling is off, so `check_allowed` runs
-  on every call. Gemini returns opaque thought signatures with its function calls. The adapter
+  before any tool does. Gemini returns opaque thought signatures with its function calls. The adapter
   returns the model's turn as an opaque object, and the core passes it back unchanged.
 - **Port change:** `LLMProvider.stream` takes tools and history, and yields text deltas or
   `ToolCall(name, arguments)`. The mock LLM scripts tool calls, so tests and CI never call Gemini.
@@ -131,9 +135,17 @@ text on the dev machine (Windows). #51 measures again in the Linux image.
 
 ### Confirmation and step-up
 
+- **Being offered a tool isn't permission to run it.** Step-up lasts 5 minutes, so most signed-in
+  customers don't have it when they ask to block a card. If the model weren't offered the tool, it
+  couldn't propose the action, and the customer would never reach step-up. So any signed-in caller
+  can propose an action, and anonymous callers still can't. Step-up is enforced only where the
+  action runs: at confirm time.
 - **The model proposes; it never confirms.** An action tool call doesn't run.
   - Instead, the API stores a pending action: a random 128-bit ID, the `sub`, the tool and its
     exact arguments, expiring in 5 minutes.
+  - Ownership is checked now as well as at run time, so a proposal for someone else's card stores
+    nothing and shows nothing. The check reads no more than `check_card_status` already shows a
+    signed-in caller.
   - It then ends the turn with `event: confirm`. The summary is written by the server from the
     tool's own template («¿Bloquear la tarjeta terminada en 4417?»), not by the model.
 - **Confirming is a button,** not a chat message. The page sends `POST /v1/actions/{id}` with
@@ -206,6 +218,10 @@ Placeholders, repeated questions and pending actions all need them.
 - **Filling placeholders back into the answer.** It needs the values stored, for no gain: the
   customer already sees what they typed.
 - **Confirming with a typed «sí».** That's text the model or an injected message can also produce.
+- **Offering action tools only at step-up,** as `list_tools` first did. It shows the model less, but
+  a customer past the 5-minute window gets no proposal and no way to step up. A prompt instruction
+  or a `request_step_up` tool could send them to sign in again, but the model would have to get that
+  right, and the action's exact arguments would be lost, so the customer would have to ask again.
 - **A router model** for tools and handoff. A second call on every message.
 - **Audit in Cloud Logging.** It differs per cloud, isn't append-only by grant, and logs can be
   excluded or expire. One shared table matches the three-cloud design and `llm_usage`.
@@ -223,6 +239,15 @@ Placeholders, repeated questions and pending actions all need them.
 - **Embedding waits for redaction** (~7 ms), which changes the roadmap's parallel pre-work line.
 - **The `LLMProvider` port changes** (tools, history, `ToolCall`). Gemini, the mock and the
   contract suite all change with it.
+- **`ToolProvider` separates offering from running,** in the same slice as the agent loop.
+  - `list_tools` returns action tools to every signed-in caller. Its docstring and the contract
+    test that expects one tool at the signed-in tier change with it.
+  - `check_allowed` stops relying on `visible_to` and checks the tier itself, so `call` still
+    refuses an action without step-up and confirmation. Its tests stay as they are.
+- **The model sees tools the caller can't run yet, so a fooled model can propose an action.** That
+  costs a proposal, not an action: the customer sees the server's summary and must still press the
+  button with step-up. Proposals also add pending actions and audit rows, which the step cap and
+  M5's per-user limits bound.
 - **New database pieces,** each as a migration applied before the code that uses it:
   - the `audit_writer` role
   - the `bank` schema
