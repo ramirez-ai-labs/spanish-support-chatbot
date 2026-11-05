@@ -197,7 +197,7 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 - [ ] Staff role for the handoff queue via Firebase custom claims
 - [ ] Audit log of every action: who, what, when, decision
 - [ ] Human-handoff rule: low retrieval score, repeated question or frustration
-- [ ] Firestore sessions keyed to `sub`, with random IDs and a 30-day TTL
+- [ ] Firestore sessions keyed to `sub`, with random IDs and a 30-day TTL. The database comes first, in Terraform. Firestore's TTL policies have no free usage, so how expired sessions get deleted is decided with the `SessionStore` slice
 - [ ] Last: MFA on GitHub and Google (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare (#36). Moved from M2, and from the start of M3 to its end, since redaction, sessions and the read-only tool add no new power to the owner's login. It still gates the action tools: `block_card` and `open_ticket` don't deploy until it's done. Azure and AWS get MFA in M7 and M8
 
 ### M4 · Evaluation quality gate (Dec 14–20)

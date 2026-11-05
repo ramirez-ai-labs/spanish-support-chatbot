@@ -492,6 +492,7 @@ The full procedure and the security test layers are in [BOOTSTRAP.md](../infra/B
 | Cloud Run (request-based) | 2M requests, 180k vCPU-s, 360k GiB-s a month | Scale to zero, max 1 instance |
 | Artifact Registry | 0.5 GB | The live image and one rollback, sharing their large layers; each deploy prunes the rest |
 | Secret Manager | 6 versions, 10k accesses a month | 1 version |
+| Firestore (Standard edition) | 1 GiB, and 50k reads, 20k writes and 20k deletes a day, for the project's first database. No free usage for TTL deletes, backups or point-in-time recovery, so all three stay off | The sessions database; no data until the `SessionStore` slice |
 | Gemini (AI Studio) | Free tier, key in a project with **no billing** | It returns 429 at the limit instead of billing |
 | Neon Postgres + pgvector | 0.5 GB storage, 100 CU-hours a month per project; compute suspends at the limit instead of billing | Usage rows and 84 knowledge chunks (a few MB); scales to zero after 5 minutes idle |
 | e5 embeddings | In the container: no API, no quota | ~70 ms a text on Cloud Run's CPU |

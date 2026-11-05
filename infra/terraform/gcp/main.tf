@@ -245,11 +245,35 @@ resource "google_project_iam_member" "run" {
     "roles/cloudtrace.agent", # write spans; always free up to 2.5M spans a month
     # Send sign-in link emails, and nothing else (custom role from the bootstrap stack, #72).
     "projects/${var.project_id}/roles/signInEmailSender",
+    # Read and write documents in this project's one database, for sessions (ADR 0008).
+    "roles/datastore.user",
   ])
 
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.run.email}"
+}
+
+# --- Sessions (Firestore) ---------------------------------------------------------------------------
+
+resource "google_project_service" "firestore" {
+  service            = "firestore.googleapis.com"
+  disable_on_destroy = false
+}
+
+# Conversation sessions, behind the SessionStore port (ADR 0008). Standard edition, always free up to
+# 1 GiB stored and 50k reads, 20k writes and 20k deletes a day, for the project's first database.
+# Paid features stay off: point-in-time recovery, backups and TTL policies have no free usage. The
+# region can't change once created; it's the API's, to keep each session read short.
+resource "google_firestore_database" "sessions" {
+  name                              = "(default)"
+  location_id                       = var.region
+  type                              = "FIRESTORE_NATIVE"
+  database_edition                  = "STANDARD"
+  point_in_time_recovery_enablement = "POINT_IN_TIME_RECOVERY_DISABLED"
+  delete_protection_state           = "DELETE_PROTECTION_ENABLED"
+
+  depends_on = [google_project_service.firestore]
 }
 
 # --- Cloud Run -------------------------------------------------------------------------------------
