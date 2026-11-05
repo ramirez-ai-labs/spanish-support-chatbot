@@ -13,10 +13,101 @@ from core.redaction import (
     PROTECTED,
     OutputScanner,
     Redactor,
+    card_is_valid,
     clabe_is_valid,
     curp_is_valid,
     dui_is_valid,
+    plain,
+    ssn_is_valid,
 )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("４１１１ １１１１", "4111 1111"),  # fullwidth digits and an ideographic space
+        ("٤١١١", "4111"),  # another script's digits
+        ("4111​1111­2222⁠", "411111112222"),  # zero-width, soft hyphen, word joiner
+        ("4111\u00001111", "41111111"),  # a control character
+        ("4111‑1111–1111", "4111-1111-1111"),  # non-breaking hyphen, en dash
+        ("4111 1111", "4111 1111"),  # non-breaking space
+        ("ｍａｒｉａ＠ｅｘａｍｐｌｅ．ｃｏｍ", "maria@example.com"),  # fullwidth letters and signs
+        ("María", "María"),  # a decomposed accent composes
+        ("4️111", "4111"),  # a variation selector
+    ],
+)
+def test_plain_removes_what_can_hide_a_value(text: str, expected: str) -> None:
+    assert plain(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "¿Cuánto cuesta enviar dinero a El Salvador? ñ, ü, «sí» y 1.º de mayo",
+        "línea uno\nlínea dos\tcon tabulador",
+        "Hola 😀",
+        "",
+    ],
+)
+def test_plain_keeps_ordinary_text_as_it_is(text: str) -> None:
+    assert plain(text) == text
+
+
+def test_what_is_detected_and_what_goes_on_is_the_plain_text() -> None:
+    # A detector that only knows the ASCII digits catches a value typed in fullwidth.
+    text, counts = redact("Mi tarjeta ４１１１", ("4111", "CREDIT_CARD", 1.0))
+    assert text == "Mi tarjeta <CREDIT_CARD_1>"
+    assert counts == {"CREDIT_CARD": 1}
+
+
+@pytest.mark.parametrize(
+    "word",
+    ["Crédito", "credito", "DÉBITO", "hola", "Buenos Días", "buenos  dias", "Transferencias"],
+)
+def test_a_person_span_that_is_only_a_banking_word_or_greeting_stays(word: str) -> None:
+    text, counts = redact(f"Tema: {word}.", (word, "PERSON", 0.85))
+    assert text == f"Tema: {word}."
+    assert counts == {}
+
+
+def test_a_person_span_with_a_name_in_it_goes_even_next_to_those_words() -> None:
+    text, _ = redact("Hola Ana", ("Hola Ana", "PERSON", 0.85))
+    assert text == "<PERSON_1>"
+
+
+def test_those_words_only_excuse_a_person_span() -> None:
+    text, _ = redact("Mi correo: hola", ("hola", "EMAIL_ADDRESS", 1.0))
+    assert text == "Mi correo: <EMAIL_ADDRESS_1>"
+
+
+@pytest.mark.parametrize(
+    "value", ["4111111111111111", "4111.1111.1111.1111", "4111/1111/1111/1111"]
+)
+def test_a_card_passes_the_luhn_check_whatever_separates_it(value: str) -> None:
+    assert card_is_valid(value)
+
+
+@pytest.mark.parametrize("value", ["4111111111111112", "411111111111", "41111111111111111111"])
+def test_a_card_fails_on_a_wrong_digit_or_length(value: str) -> None:
+    assert not card_is_valid(value)
+
+
+def test_an_ssn_is_any_nine_digits_from_a_range_that_was_issued() -> None:
+    assert ssn_is_valid("219099999")
+    assert ssn_is_valid("219-09-9999")
+
+
+@pytest.mark.parametrize(
+    "value", ["000099999", "666099999", "919099999", "219009999", "219090000", "21909999", "1" * 10]
+)
+def test_an_ssn_fails_outside_those_ranges(value: str) -> None:
+    assert not ssn_is_valid(value)
+
+
+def test_clabe_accepts_dots_as_well_as_hyphens_and_spaces() -> None:
+    assert clabe_is_valid("032.180.00011835971.9")
+    assert clabe_is_valid("032-180-00011835971-9")
+    assert clabe_is_valid("032 180 00011835971 9")
 
 
 class ScriptedDetector:

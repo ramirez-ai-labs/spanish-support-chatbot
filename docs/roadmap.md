@@ -210,7 +210,7 @@ Done when: a worse prompt, model or index fails CI, and eval cost is tracked sep
 - [ ] Per-market test sets, about 50 questions each with expected sources, covering regional vocabulary (e.g., celular vs. móvil, cuenta de cheques vs. cuenta corriente)
 - [ ] Retrieval metrics from rag-evaluation-lab (pinned git tag): Recall@k, MRR
 - [ ] Answer quality via LLM-as-judge from chatbot-evaluation-system (pinned git tag), with a judge model different from the candidates
-- [ ] Security tests: cross-user access, prompt injection against tools, and PII leaks including tricky cases (SSN with spaces or no dashes, numbers written out in words, every market's ID format)
+- [ ] Security tests: cross-user access, prompt injection against tools, and PII leaks including tricky cases (SSN with spaces or no dashes, numbers and email addresses written out in words, every market's ID format)
 - [ ] Eval calls tagged `purpose=eval` in `llm_usage`
 - [ ] CI gate: block merge if scores drop below the last baseline; make it a required check
 - [ ] Model bakeoff: free-tier Gemini Flash and Flash-Lite (optionally one or two Bedrock models on AWS credits), same test sets, retrieved chunks and prompt; scored on quality, grounding, tool accuracy, time to first token and shadow cost
