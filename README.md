@@ -9,7 +9,8 @@ eval gate in CI, tracing, cost tracking, and the same app running natively on GC
 all on free tiers with synthetic data only.
 
 **Status:** M2 shipped: answers come from each market's policy docs (US, MX, SV, ES), with
-sources under each answer. M3 (PII redaction, tools, access tiers) is next. Try it at
+sources under each answer. M3 is in progress: personal data is redacted before retrieval and the model, and in answers
+as they stream; tools, step-up and handoff are next. Try it at
 https://spanish-support-chatbot.pages.dev:
 - **Behind the page:** the chat page on Cloudflare Pages calls the API on Cloud Run.
 - **Deploys:** both are deployed from CI after an approval.

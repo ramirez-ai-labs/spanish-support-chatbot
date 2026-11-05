@@ -490,7 +490,7 @@ The full procedure and the security test layers are in [BOOTSTRAP.md](../infra/B
 | Service | Free tier | Our use |
 | --- | --- | --- |
 | Cloud Run (request-based) | 2M requests, 180k vCPU-s, 360k GiB-s a month | Scale to zero, max 1 instance |
-| Artifact Registry | 0.5 GB | The live image and one rollback; each deploy prunes the rest |
+| Artifact Registry | 0.5 GB | The live image and one rollback, sharing their large layers; each deploy prunes the rest |
 | Secret Manager | 6 versions, 10k accesses a month | 1 version |
 | Gemini (AI Studio) | Free tier, key in a project with **no billing** | It returns 429 at the limit instead of billing |
 | Neon Postgres + pgvector | 0.5 GB storage, 100 CU-hours a month per project; compute suspends at the limit instead of billing | Usage rows and 84 knowledge chunks (a few MB); scales to zero after 5 minutes idle |
@@ -555,6 +555,13 @@ calculator.
   1 GiB at idle (#119), so the API runs at 2 GiB. Request-based billing's free tier is 180k
   vCPU-seconds and 360k GiB-seconds a month: at 1 vCPU and 2 GiB both last exactly 50 hours of
   request time, so CPU, not memory, is what runs out first, and the extra headroom costs nothing.
+- **Two images fit the registry because they share layers.** Each image is 344.5 MB compressed, over
+  half the 0.5 GB free tier, yet the live image and its rollback need 346.7 MB together (#122). A
+  registry stores a layer once per hash, so the Dockerfile keeps the large layers byte-identical
+  between builds: no timestamps in bytecode, fixed file times, and `COPY --link`. A version that
+  changes dependencies shares less: one package layer adds up to 100 MB, and changing all three
+  goes over the limit, at about 560 MB, until the old image is pruned. Without this limit, paying
+  for the storage would be simpler than keeping these layers identical.
 - **At scale, the model dominates.** At the 50k-conversations-a-day target (6M questions a month),
   with ~1,500 input and ~200 output tokens a question at Flash-Lite's list price ($0.30 / $2.50 per
   1M, `model_prices`), the model costs about **$2,700 + $3,000 ≈ $5,700 a month**. Retrieval, managed
