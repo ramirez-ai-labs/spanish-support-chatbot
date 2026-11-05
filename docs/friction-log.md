@@ -8,6 +8,15 @@ one confirmed dead.
 
 ## M3 · Guardrails, agent, access
 
+**The free-tier warning couldn't fire** ([#123])
+- **What:** the deploy's registry check read an empty size from `gcloud`, so it wrote
+  `size not reported` and never warned. After [#122] deployed, the registry held 940 MB against
+  the 500 MB free tier, with no warning.
+- **How it surfaced:** looking for the size in the job summary to check #122's layer sharing.
+- **Fix:** the step reads `sizeBytes` from the Artifact Registry API.
+- **Rule:** a check that can't get its input has to be visible. Run a new check once against real
+  output, including the case it exists to catch.
+
 **Comparing image builds filled the laptop's disk** ([#122])
 - **What:** several `--no-cache` builds, kept side by side to compare their layers, filled the host
   disk. Docker then failed even to remove images or prune, with `input/output error` on its own
@@ -239,3 +248,4 @@ one confirmed dead.
 [#112]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/112
 [#113]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/113
 [#122]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/122
+[#123]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/123
