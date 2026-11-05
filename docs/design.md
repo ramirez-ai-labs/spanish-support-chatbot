@@ -239,13 +239,15 @@ sequenceDiagram
     A->>A: token check: anonymous, signed in or step-up, else 401
     A->>T: siteverify the Turnstile token
     T-->>A: success and hostname, else 403, or 503 if unreachable
-    A->>A: market in the list, else 400; embed the question with e5 (query:)
+    A->>A: market in the list, else 400
+    A->>A: redact PII with Presidio, else 503
+    A->>A: embed the redacted question with e5 (query:)
     A->>N: top 4 chunks for this market, as app_gcp
     N-->>A: policy chunks
     A-->>P: SSE event sources: title, section, market
-    A->>G: one streamed call: system prompt, policy chunks and message
+    A->>G: one streamed call: system prompt, policy chunks and redacted message
     G-->>A: answer chunks, or a safety block
-    A-->>P: SSE data deltas, then event done or error
+    A-->>P: SSE data deltas, scanned for PII as they stream, then event done or error
     A->>N: one llm_usage row, after the stream
     A->>O: request span and chat.model span, flushed before the request ends
 ```
