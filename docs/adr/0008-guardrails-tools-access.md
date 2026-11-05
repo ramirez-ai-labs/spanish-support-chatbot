@@ -59,13 +59,13 @@ text on the dev machine (Windows). #51 measures again in the Linux image.
 
   | Type | How |
   | --- | --- |
-  | `PERSON` | spaCy NER |
-  | `EMAIL_ADDRESS`, `CREDIT_CARD` (Luhn), `IBAN_CODE`, `ES_NIF`, `ES_NIE` | Presidio, built in |
+  | `PERSON` | spaCy NER, with runs of capitals read a second time in normal casing, since the NER misses them |
+  | `EMAIL_ADDRESS`, `CREDIT_CARD` (Luhn), `IBAN_CODE`, `ES_NIF`, `ES_NIE` | Presidio, built in. Ours adds cards with dots or slashes, also checked by Luhn |
   | `PHONE_NUMBER` | Presidio, with regions US, MX, SV and ES |
-  | `US_SSN`, `US_ITIN` | Presidio's recognizers, registered for Spanish with Spanish context words («seguro social», «ITIN») |
+  | `US_SSN`, `US_ITIN` | Presidio's recognizers, registered for Spanish with Spanish context words («seguro social», «ITIN»). Ours adds an SSN as 9 bare digits with no context, in any range that was ever issued |
   | `MX_CURP` | Ours: the 18-character format and its check digit |
-  | `MX_CLABE` | Ours: 18 digits and their check digit |
-  | `SV_DUI` | Ours: 8 digits, an optional hyphen and the check digit |
+  | `MX_CLABE` | Ours: 18 digits, optionally separated, and their check digit |
+  | `SV_DUI` | Ours: 8 digits, an optional hyphen or space and the check digit |
 
   Colombia's cédula and Peru's DNI arrive with their markets. Their formats are weak (Peru has an
   optional check character, Colombia none), so they need context words («cédula», «DNI»).
@@ -76,6 +76,22 @@ text on the dev machine (Windows). #51 measures again in the Linux image.
   Leaving `URL` out also removes its false hits inside email addresses.
 - **Score threshold 0.4,** where phone numbers land without context. Over-redacting a number costs
   an answer that's a little less specific; under-redacting sends PII to the model.
+  - So any 9-digit number in a range an SSN can use is redacted, even in an answer: it has no check
+    digit to tell it from a reference number.
+- **Plain text first.** Before detection, the text loses what can hide a value from the patterns:
+  other scripts' digits and fullwidth forms become ASCII, unusual spaces and hyphens become plain
+  ones, and invisible characters go. Detection and everything after it see this text, and so does
+  the output scan. It isn't NFKC, which would turn «1.º» into «1.o».
+- **Words that aren't names.** The NER tags some banking words and greetings as people («Tarjeta de
+  Crédito», «hola»). A `PERSON` span that's only one of a short list stays, so the question and its
+  query vector keep the word. A span with a name in it («Hola Ana») still goes. The list holds only
+  words that aren't also surnames, and a contract test runs the smoke questions and doc headings
+  through the real NER.
+- **Known limits:**
+  - Values spelled out («cinco tres seis…», «maria arroba example punto com») aren't caught. M4's
+    PII set measures them.
+  - A message all in capitals can lose an extra phrase to `<PERSON_n>`, since the NER reads the
+    re-cased words less reliably. That's the cheap side of the tradeoff above.
 - **Placeholders:** `<TYPE_n>`, such as `<PERSON_1>` or `<MX_CURP_1>`, numbered per
   conversation. The same value gets the same placeholder on every turn, so a conversation about
   `<PERSON_1>` stays coherent.

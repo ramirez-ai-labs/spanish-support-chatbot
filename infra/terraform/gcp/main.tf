@@ -377,7 +377,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         # Presidio with spaCy es_core_news_md, installed in the image and loaded at startup
-        # (ADR 0008, #51); needs the 1 GiB above
+        # (ADR 0008, #51); needs the memory above
         name  = "PII_DETECTOR"
         value = "presidio"
       }

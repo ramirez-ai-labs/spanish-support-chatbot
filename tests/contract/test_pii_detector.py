@@ -9,9 +9,11 @@ The detector is built and run with sockets blocked: it must never reach the netw
 
 import socket
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from adapters.shared.presidio import PresidioDetector
 from core.pii import DetectorUnavailable, PIISpan
@@ -75,10 +77,101 @@ def found(detector: PIIDetector, text: str) -> dict[str, set[str]]:
         ("CLABE 012 345 67890123456 8", "MX_CLABE", "012 345 67890123456 8"),
         ("Mi DUI es 12345678-4.", "SV_DUI", "12345678-4"),
         ("DUI 123456784", "SV_DUI", "123456784"),
+        ("Mi DUI es 12345678 4.", "SV_DUI", "12345678 4"),
+        ("Mi tarjeta es 4111.1111.1111.1111.", "CREDIT_CARD", "4111.1111.1111.1111"),
+        ("4111/1111/1111/1111", "CREDIT_CARD", "4111/1111/1111/1111"),
+        ("es 219099999", "US_SSN", "219099999"),
+        ("La CLABE es 032-180-00011835971-9.", "MX_CLABE", "032-180-00011835971-9"),
+        ("clabe 032.180.00011835971.9", "MX_CLABE", "032.180.00011835971.9"),
+        ("HOLA SOY MARIA FERNANDEZ Y TENGO UNA DUDA", "PERSON", "MARIA FERNANDEZ"),
+        ("ME LLAMO ANA RUIZ", "PERSON", "ANA RUIZ"),
+        ("Mi nombre es MARIA FERNANDEZ LOPEZ", "PERSON", "MARIA FERNANDEZ LOPEZ"),
     ],
 )
 def test_it_finds_each_type(detector: PIIDetector, text: str, entity_type: str, value: str) -> None:
     assert value in found(detector, text).get(entity_type, set())
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Mi tarjeta es ４１１１１１１１１１１１１１１１.",
+        "Mi tarjeta es 4111​1111​1111​1111.",
+        "Mi tarjeta es 4­1­1­1 1111 1111 1111.",
+        "Mi tarjeta es 4111‑1111‑1111‑1111.",
+        "Mi tarjeta es 4111 1111 1111 1111.",
+    ],
+)
+def test_hidden_characters_do_not_hide_a_number(detector: PIIDetector, text: str) -> None:
+    result = Redactor(detector).redact(text)
+    assert result.text == "Mi tarjeta es <CREDIT_CARD_1>."
+
+
+def test_an_answer_cannot_hide_a_number_with_hidden_characters(detector: PIIDetector) -> None:
+    scan = Redactor(detector).output_scanner()
+    shown = scan.feed("Tu tarjeta ４１１１ 1111​ 1111 1111 quedó bloqueada.") + scan.finish()
+    assert shown == "Tu tarjeta [dato protegido] quedó bloqueada."
+
+
+def knowledge_text() -> list[str]:
+    """Every smoke question and doc heading: real policy language, with no personal data in it."""
+    root = Path(__file__).resolve().parents[2] / "knowledge"
+    smoke = yaml.safe_load((root / "smoke.yaml").read_text(encoding="utf-8"))
+    questions = [q["question"] for q in smoke["questions"]] + smoke["out_of_scope"]
+    headings = [
+        line.lstrip("# ").strip()
+        for path in sorted((root / "docs").rglob("*.md"))
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.startswith("#")
+    ]
+    return sorted({*questions, *headings})
+
+
+def test_policy_language_is_never_redacted(detector: PIIDetector) -> None:
+    redactor = Redactor(detector)
+    changed = {t: redactor.redact(t).text for t in knowledge_text() if redactor.redact(t).counts}
+    assert changed == {}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Quiero bloquear mi Tarjeta de Crédito",
+        "Tarjeta de Débito",
+        "hola",
+        "hola, buenos días",
+        "buenos dias, tengo una duda",
+        "¿Puedo pagar con Zelle?",
+        "QUIERO BLOQUEAR MI TARJETA DE CREDITO",
+        "NO SIRVE LA APP",
+        "YA TE DIJE QUE NO",
+        "NECESITO UN AGENTE",
+        "¿El límite es de 1,500,000 pesos?",
+        "El pago vence el 2026.11.05 a las 9.30",
+    ],
+)
+def test_everyday_messages_are_not_redacted(detector: PIIDetector, text: str) -> None:
+    assert Redactor(detector).redact(text).text == text
+
+
+def test_a_name_next_to_a_greeting_still_goes(detector: PIIDetector) -> None:
+    assert "Ana" not in Redactor(detector).redact("Hola Ana").text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Mi tarjeta es 4111.1111.1111.1112.",  # wrong Luhn digit
+        "es 000099999",  # area never issued
+        "es 666099999",
+        "es 219009999",  # group never issued
+        "es 219090000",  # serial never issued
+    ],
+)
+def test_numbers_that_cannot_be_that_id_are_not_flagged_as_it(
+    detector: PIIDetector, text: str
+) -> None:
+    assert not {"CREDIT_CARD", "US_SSN"} & found(detector, text).keys()
 
 
 @pytest.mark.parametrize(

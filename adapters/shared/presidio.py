@@ -6,8 +6,11 @@ so instances never download a model. Spanish is the only language.
 - **Built in for `es`:** names (spaCy NER), email, cards (Luhn), IBAN, and Spain's NIF and NIE.
 - **Registered for Spanish here:** Presidio's US SSN and ITIN recognizers (English-only by
   default) with Spanish context words, and phone numbers for the live markets' regions.
-- **Ours:** Mexico's CURP and CLABE and El Salvador's DUI. Each match must pass its check digit
+- **Ours:** Mexico's CURP and CLABE and El Salvador's DUI, plus cards with dots or slashes and SSNs
+  as 9 bare digits, which Presidio's own patterns don't catch. Each match must pass its check
   (`core.redaction`), so a number with a wrong one is left alone.
+- **Names in capitals:** spaCy's NER misses them, so a run of capitalized words is also read with
+  normal casing. Only names come from that second read.
 
 Every recognizer runs on every message, whatever the market: a Mexican customer in the US market
 can type a CURP. The core decides which types are redacted.
@@ -20,13 +23,19 @@ swaps in an extractor that reads only the snapshot bundled with the package.
 """
 
 import logging
-import resource
+import re
 import sys
 import time
 from typing import Any
 
 from core.pii import DetectorUnavailable, PIISpan
-from core.redaction import clabe_is_valid, curp_is_valid, dui_is_valid
+from core.redaction import (
+    card_is_valid,
+    clabe_is_valid,
+    curp_is_valid,
+    dui_is_valid,
+    ssn_is_valid,
+)
 
 LANGUAGE = "es"
 SPACY_MODEL = "es_core_news_md"
@@ -41,6 +50,25 @@ CURP_REGEX = (
     r"\b[A-Z][AEIOUX][A-Z]{2}\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])[HMX]"
     rf"(?:{_CURP_STATES})[B-DF-HJ-NP-TV-Z]{{3}}[A-Z\d]\d\b"
 )
+
+
+_UPPER = "A-ZÁÉÍÓÚÜÑ"
+# Two or more words in capitals: a lone one is more often an acronym (CURP, ATM) than a name.
+_CAPITALS = re.compile(rf"\b[{_UPPER}]{{2,}}(?:\s+[{_UPPER}]{{2,}})+\b")
+_WORD = re.compile(rf"[{_UPPER}]+")
+
+
+def _recased(text: str) -> str:
+    """Runs of capitals with normal casing, so the NER can read them: «ME LLAMO ANA RUIZ» becomes
+    «me Llamo Ana Ruiz». Stop words go lowercase, or they'd read as part of a name. Offsets don't
+    change, so a span found here points at the same place in the text."""
+    from spacy.lang.es.stop_words import STOP_WORDS
+
+    def word(match: re.Match[str]) -> str:
+        lower = match.group().lower()
+        return lower if lower in STOP_WORDS else match.group().capitalize()
+
+    return _CAPITALS.sub(lambda run: _WORD.sub(word, run.group()), text)
 
 
 def _offline_tldextract() -> None:
@@ -80,16 +108,28 @@ def _recognizers() -> list[Any]:
             "MX_CLABE",
             [
                 Pattern("clabe", r"\b\d{18}\b", 0.3),
-                Pattern("clabe spaced", r"\b\d{3} \d{3} \d{11} \d\b", 0.3),
+                Pattern("clabe separated", r"\b\d{3}[ .\-]\d{3}[ .\-]\d{11}[ .\-]\d\b", 0.3),
             ],
             ["clabe", "interbancaria", "transferencia"],
             clabe_is_valid,
         ),
         CheckedRecognizer(
             "SV_DUI",
-            [Pattern("dui", r"\b\d{8}-\d\b", 0.5), Pattern("dui digits", r"\b\d{9}\b", 0.1)],
+            [Pattern("dui", r"\b\d{8}[ \-]\d\b", 0.5), Pattern("dui digits", r"\b\d{9}\b", 0.1)],
             ["dui", "documento", "identidad"],
             dui_is_valid,
+        ),
+        CheckedRecognizer(
+            "CREDIT_CARD",
+            [Pattern("card dots or slashes", r"\b\d{3,6}(?:[./]\d{3,6}){2,4}\b", 0.3)],
+            ["tarjeta", "débito", "crédito"],
+            card_is_valid,
+        ),
+        CheckedRecognizer(
+            "US_SSN",
+            [Pattern("ssn digits", r"\b\d{9}\b", 0.1)],
+            ["seguro", "social", "ssn"],
+            ssn_is_valid,
         ),
         UsSsnRecognizer(supported_language=LANGUAGE, context=["seguro", "social", "ssn"]),
         UsItinRecognizer(supported_language=LANGUAGE, context=["itin", "contribuyente"]),
@@ -140,6 +180,11 @@ class PresidioDetector:
     def detect(self, text: str) -> list[PIISpan]:
         try:
             results = self._engine.analyze(text=text, language=LANGUAGE)
+            recased = _recased(text)
+            if recased != text:
+                results += self._engine.analyze(
+                    text=recased, language=LANGUAGE, entities=["PERSON"]
+                )
         except Exception as exc:  # whatever breaks inside spaCy or a recognizer, fail closed
             raise DetectorUnavailable(type(exc).__name__) from exc
         return [PIISpan(r.entity_type, r.start, r.end, r.score) for r in results]
@@ -160,6 +205,10 @@ class PresidioDetector:
 
 
 def peak_rss_mb() -> int:
+    if sys.platform == "win32":  # no `resource` module; only the `check` command's report uses this
+        return 0
+    import resource
+
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # KB on Linux, bytes on macOS
     return int(peak / 1e6 if sys.platform == "darwin" else peak / 1e3)
 

@@ -9,8 +9,13 @@ A `PIIDetector` finds spans; this module decides what's removed and how:
   little less specific; under-redacting sends PII to the model.
 - **Placeholders** `<TYPE_n>`, numbered in order of appearance, the same value always getting the
   same number. Numbered per message for now; sessions number them per conversation, by HMAC.
-- **Check digits** for the IDs Presidio doesn't know in Spanish (CURP, CLABE, DUI). The adapter's
-  recognizers call these, so a number with a wrong check digit is left alone.
+- **Check digits** for the IDs Presidio doesn't know in Spanish (CURP, CLABE, DUI), and for cards
+  and bare SSNs typed in shapes its recognizers miss. The adapter's recognizers call these, so a
+  number with a wrong one is left alone.
+- **Plain text first** (`plain`): fullwidth digits and hidden characters can't hide a number from
+  the patterns, so what's detected, and what goes on, is the plain text.
+- **Words that aren't names** (`NOT_NAMES`): the NER calls some banking words and greetings a
+  person («Tarjeta de Crédito», «hola»). A span that's only one of these stays.
 
 `Redacted` is the only type the chat service accepts, so raw text can't reach retrieval or the
 model by mistake. Counts are by type: never the values.
@@ -22,6 +27,7 @@ need the values stored, and the customer already sees what they typed.
 """
 
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -46,6 +52,37 @@ REDACTED_TYPES = frozenset(
     }
 )
 MIN_SCORE = 0.4
+
+# What the NER tagged as a person in knowledge/ and in customer-style messages, and their near
+# relatives. Matched against a whole PERSON span, accents and case aside, so «Hola Ana» still goes.
+# Only words that aren't also surnames: a missed name reaches the model, an extra one only costs a
+# word. The contract suite runs the smoke questions and doc headings against the real NER.
+NOT_NAMES = frozenset(
+    {
+        "hola",
+        "buenas",
+        "buenos dias",
+        "buenas tardes",
+        "buenas noches",
+        "gracias",
+        "muchas gracias",
+        "cargo",
+        "cargos",
+        "credito",
+        "creditos",
+        "debito",
+        "debitos",
+        "saldo",
+        "saldos",
+        "sobregiro",
+        "sobregiros",
+        "transferencia",
+        "transferencias",
+        "zelle",
+        "bizum",
+        "spei",
+    }
+)
 
 PROTECTED = "[dato protegido]"  # what the customer sees in place of anything caught in an answer
 PLACEHOLDER = re.compile(r"<[A-Z][A-Z_]*_\d+>")  # one of ours, echoed by the model
@@ -75,15 +112,51 @@ def unredacted(text: str) -> Redacted:
     return Redacted(text)
 
 
+def plain(text: str) -> str:
+    """The same text with what can hide a value from the patterns removed: composed accents, ASCII
+    digits and fullwidth forms, plain spaces and hyphens, and no invisible characters. Same words
+    otherwise: unlike NFKC, it leaves «1.º» alone. Newlines and tabs stay."""
+    if text.isascii() and text.isprintable():
+        return text
+    kept: list[str] = []
+    for char in unicodedata.normalize("NFC", text):
+        category = unicodedata.category(char)
+        if category == "Nd":
+            kept.append(str(unicodedata.decimal(char)))
+        elif category in ("Cf", "Mn") or (category == "Cc" and char not in "\n\r\t"):
+            continue
+        elif category == "Zs":
+            kept.append(" ")
+        elif category == "Pd":
+            kept.append("-")
+        elif "\uff01" <= char <= "\uff5e":  # fullwidth forms of ASCII
+            kept.append(chr(ord(char) - 0xFEE0))
+        else:
+            kept.append(char)
+    return "".join(kept)
+
+
+def _not_a_name(span: PIISpan, text: str) -> bool:
+    if span.entity_type != "PERSON":
+        return False
+    decomposed = unicodedata.normalize("NFD", text[span.start : span.end])
+    letters = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+    return " ".join(letters.casefold().split()) in NOT_NAMES
+
+
 def _normalized(value: str) -> str:
     """The same ID typed with spaces, hyphens or another case gets the same placeholder."""
     return re.sub(r"[\s.\-]", "", value).casefold()
 
 
-def _chosen(spans: list[PIISpan]) -> list[PIISpan]:
+def _chosen(spans: list[PIISpan], text: str) -> list[PIISpan]:
     """Spans to replace, without overlaps: the most certain first, then the longest."""
     kept: list[PIISpan] = []
-    candidates = [s for s in spans if s.entity_type in REDACTED_TYPES and s.score >= MIN_SCORE]
+    candidates = [
+        s
+        for s in spans
+        if s.entity_type in REDACTED_TYPES and s.score >= MIN_SCORE and not _not_a_name(s, text)
+    ]
     for span in sorted(candidates, key=lambda s: (-s.score, -(s.end - s.start), s.start)):
         if all(span.end <= k.start or span.start >= k.end for k in kept):
             kept.append(span)
@@ -96,7 +169,8 @@ class Redactor:
 
     def redact(self, text: str) -> Redacted:
         """Raises `core.pii.DetectorUnavailable` if the detector fails: the caller fails closed."""
-        spans = _chosen(self._detector.detect(text))
+        text = plain(text)
+        spans = _chosen(self._detector.detect(text), text)
         numbers: dict[tuple[str, str], int] = {}
         per_type: Counter[str] = Counter()
         pieces, cursor = [], 0
@@ -132,7 +206,7 @@ def curp_is_valid(value: str) -> bool:
 
 def clabe_is_valid(value: str) -> bool:
     """Mexico's CLABE: 18 digits, the last a check digit with weights 3, 7, 1 (Banxico)."""
-    digits = re.sub(r"[\s\-]", "", value)
+    digits = re.sub(r"[\s.\-]", "", value)
     if len(digits) != 18 or not digits.isdigit():
         return False
     total = sum(int(d) * (3, 7, 1)[i % 3] % 10 for i, d in enumerate(digits[:17]))
@@ -146,6 +220,28 @@ def dui_is_valid(value: str) -> bool:
         return False
     total = sum(int(d) * (9 - i) for i, d in enumerate(digits[:8]))
     return (10 - total % 10) % 10 == int(digits[8])
+
+
+def card_is_valid(value: str) -> bool:
+    """A card number: 13 to 19 digits and the Luhn check, whatever separates them."""
+    digits = re.sub(r"\D", "", value)
+    if not 13 <= len(digits) <= 19:
+        return False
+    total = 0
+    for i, digit in enumerate(reversed(digits)):
+        doubled = int(digit) * (2 if i % 2 else 1)
+        total += doubled - 9 if doubled > 9 else doubled
+    return total % 10 == 0
+
+
+def ssn_is_valid(value: str) -> bool:
+    """A US SSN as 9 digits. There's no check digit, so only the ranges never issued are refused:
+    area 000, 666 and 900-999 (ITINs), group 00, serial 0000."""
+    digits = re.sub(r"\D", "", value)
+    if len(digits) != 9:
+        return False
+    area, group, serial = digits[:3], digits[3:5], digits[5:]
+    return area not in ("000", "666") and area[0] != "9" and group != "00" and serial != "0000"
 
 
 class OutputScanner:
@@ -163,7 +259,7 @@ class OutputScanner:
         self.counts: Counter[str] = Counter()  # what was replaced, by type ("PLACEHOLDER" too)
 
     def feed(self, chunk: str) -> str:
-        self._pending += chunk
+        self._pending += plain(chunk)
         if len(self._pending) <= HOLDBACK:
             return ""
         return self._release(keep=HOLDBACK)
@@ -173,7 +269,7 @@ class OutputScanner:
 
     def _release(self, keep: int) -> str:
         text = self._pending
-        spans = _chosen(self._scan(text))
+        spans = _chosen(self._scan(text), text)
         spans += [
             PIISpan("PLACEHOLDER", m.start(), m.end(), 1.0)
             for m in PLACEHOLDER.finditer(text)
