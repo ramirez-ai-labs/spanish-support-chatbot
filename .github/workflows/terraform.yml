@@ -333,8 +333,11 @@ jobs:
           # A warning, not a failure: the deploy already succeeded, and the reported size lags a
           # delete until unreferenced layers are cleaned up (about a day). Two days in a row over
           # the limit mean the image itself is too big.
-          size_bytes="$(gcloud artifacts repositories describe app --location "$REGION" \
-            --format 'value(sizeBytes)' 2>/dev/null || true)"
+          # From the API: `gcloud artifacts repositories describe` only prints the size to stderr, as
+          # text, and --format 'value(sizeBytes)' comes back empty.
+          size_bytes="$(curl -fsS -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+            "https://artifactregistry.googleapis.com/v1/projects/$PROJECT_ID/locations/$REGION/repositories/app" \
+            | jq -r '.sizeBytes // empty' || true)"
           if [[ "$size_bytes" =~ ^[0-9]+$ ]]; then
             size_mb=$(( size_bytes / 1000000 ))
             echo "Registry: pruned $deleted old images, $size_mb MB stored (free to 500 MB)" >> "$GITHUB_STEP_SUMMARY"
