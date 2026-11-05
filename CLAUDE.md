@@ -17,8 +17,9 @@ observability, cost, and scale tradeoffs — so design decisions and their *why*
 ## Current status
 
 M2 shipped as `v0.2.0` (M1 as `v0.1.0`, M0 as `v0.0.1`; `v0.1.1` added email-link sign-in and
-GitHub settings as code). M3 (guardrails, agent, access) is next, starting with Presidio in the
-image (#51); MFA (#36) comes last, but before the action tools deploy. Live today:
+GitHub settings as code). M3 (guardrails, agent, access) is in progress: Presidio (#51) and
+redaction of the message and the streamed answer are live. The agent, tools, step-up, handoff and
+audit log are next; MFA (#36) comes last, but before the action tools deploy. Live today:
 
 - the chat page on Cloudflare Pages (a fresh Turnstile token per send, browser-started traces)
   calling the API on Cloud Run
@@ -27,13 +28,14 @@ image (#51); MFA (#36) comes last, but before the action tools deploy. Live toda
 - on every call: the token check (anonymous without a token), the bot check, the market check,
   retrieval of that market's top 4 chunks (e5 in the container, Neon pgvector as `app_gcp`) sent
   as sources, Gemini's content filters, one trace in Cloud Trace, and one usage row in Neon with
-  its shadow cost
+  its shadow cost; Presidio redacts the message before retrieval and the model, and the answer is
+  scanned as it streams
 - the `index` workflow: chunks `knowledge/`, embeds changed chunks, fills the Neon `dev` branch,
   checks it, then `main` (as the `indexer` role)
 - the stacks: `bootstrap` (applied locally; also GitHub settings and custom IAM roles), `gcp` and
   `shared` (Cloudflare), applied by CI;
   Neon is scripted, with roles and grants in `migrations/` (ADR 0006)
-- seven ADRs (0007 is the M2 retrieval design), `docs/design.md`, and contract suites for every port
+- eight ADRs (0007 is the M2 retrieval design, 0008 the M3 design), `docs/design.md`, and contract suites for every port
 
 The `tf-apply` job in `terraform.yml` applies both stacks, builds, deploys the API and the page,
 and smoke tests them, after the `prod` approval. Before starting work, check the active milestone and its issues (`gh issue list --milestone ...`) and stay
