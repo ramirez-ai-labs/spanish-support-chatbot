@@ -6,6 +6,20 @@ the rule it left behind, most of which now live in CLAUDE.md, a script or a test
 No entry contains a secret's value; where a credential was exposed, it was rotated and the old
 one confirmed dead.
 
+## M3 · Guardrails, agent, access
+
+**Comparing image builds filled the laptop's disk** ([#122])
+- **What:** several `--no-cache` builds, kept side by side to compare their layers, filled the host
+  disk. Docker then failed even to remove images or prune, with `input/output error` on its own
+  files, and one image came out far too small, so that comparison couldn't be trusted.
+- **Why:** Docker Desktop's virtual disk was allowed to grow to 1 TB, far more than the laptop had
+  free, so nothing inside Docker stopped the builds before the host ran out.
+- **Fix:** restarting Docker cleared the errors, and the disk was recreated with a 30 GB limit
+  (`DiskSizeMiB`). Saving the setting isn't enough: Docker keeps its existing disk until it's
+  recreated, which wipes its data.
+- **Rule:** cap Docker's disk below what the machine has free. When comparing builds, save their
+  layer lists first and prune between builds.
+
 ## M2 · Retrieval
 
 **The image wouldn't start on a newer Docker** ([#112])
@@ -224,3 +238,4 @@ one confirmed dead.
 [#102]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/102
 [#112]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/112
 [#113]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/113
+[#122]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/122
