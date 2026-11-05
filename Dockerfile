@@ -52,6 +52,11 @@ SPLIT
 RUN sh /split-layers.sh
 
 FROM python:3.12-slim
+# CVE-2026-109518: the base image still has apt 3.0.3. Remove this once it ships 3.0.4 or later.
+# About 2 MB compressed, and it differs from build to build, so each stored image keeps its own copy.
+RUN apt-get update -qq \
+    && apt-get install -y -qq --only-upgrade apt libapt-pkg7.0 \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /var/log/apt/* /var/log/dpkg.log /var/log/alternatives.log
 RUN useradd --create-home --uid 10001 app
 WORKDIR /app
 # --link builds each layer on its own, so it doesn't pick up the times of the directories above it.
