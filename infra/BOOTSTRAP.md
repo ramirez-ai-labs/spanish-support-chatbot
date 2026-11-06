@@ -294,6 +294,20 @@ Actions secret `GCP_INDEXER_SA` (bootstrap output `indexer_service_account`).
 - [x] M2: migration 0004 applied (2026-11-02)
 - [x] M2: `app_gcp` and `indexer` passwords set; `GCP_INDEXER_SA` added (#84, 2026-11-02)
 
+### Merge the Neon secrets (M3, once)
+
+Secret Manager's free tier covers 6 active versions per billing account, so Neon's connection strings
+share three secrets, by who reads them (ADR 0006). After the apply that creates the empty containers,
+copy the values in. No password changes, and nothing reads the merged secrets until the next PR:
+
+```bash
+bash infra/scripts/neon-merge-secrets.sh
+```
+
+It reads each value back and compares it before finishing, without printing anything.
+
+- [ ] M3: Neon secrets merged
+
 ### Create the Neon `dev` branch (M2, once)
 
 The indexing workflow fills `dev` first, checks it, and only then fills `main`

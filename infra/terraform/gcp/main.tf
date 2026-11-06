@@ -174,6 +174,57 @@ resource "google_secret_manager_secret" "neon_indexer_dev_url" {
   depends_on = [google_project_service.secretmanager]
 }
 
+# Neon's connection strings, merged by who reads them, as JSON (ADR 0006): Secret Manager's free
+# tier counts versions, and sharing one gives no account anything it couldn't already read.
+# Containers only: infra/scripts/neon-merge-secrets.sh copies the values in.
+# - neon-owner-urls: the owner on main and dev. Nothing is granted, so only the project owner reads it.
+# - neon-indexer-urls: indexer on main and dev. Read by the indexing workflow's account.
+# - neon-api-urls: the API's roles, by name. Read by the runtime account.
+resource "google_secret_manager_secret" "neon_owner_urls" {
+  secret_id = "neon-owner-urls"
+  labels    = var.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret" "neon_indexer_urls" {
+  secret_id = "neon-indexer-urls"
+  labels    = var.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret" "neon_api_urls" {
+  secret_id = "neon-api-urls"
+  labels    = var.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
 # Turnstile's server-side secret, which the API uses to verify the chat page's bot-check tokens.
 # Container only: infra/scripts/turnstile-secret.sh rotates the widget's secret through Cloudflare's
 # API and adds the new value. Only the runtime account can read it.
@@ -227,6 +278,18 @@ resource "google_secret_manager_secret_iam_member" "indexer_neon_indexer_dev_url
 
 resource "google_secret_manager_secret_iam_member" "run_neon_usage_writer_url" {
   secret_id = google_secret_manager_secret.neon_usage_writer_url.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.run.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "indexer_neon_indexer_urls" {
+  secret_id = google_secret_manager_secret.neon_indexer_urls.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:indexer-ci@${var.project_id}.iam.gserviceaccount.com"
+}
+
+resource "google_secret_manager_secret_iam_member" "run_neon_api_urls" {
+  secret_id = google_secret_manager_secret.neon_api_urls.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.run.email}"
 }
