@@ -296,19 +296,18 @@ Actions secret `GCP_INDEXER_SA` (bootstrap output `indexer_service_account`).
 - [x] M2: migration 0004 applied (2026-11-02)
 - [x] M2: `app_gcp` and `indexer` passwords set; `GCP_INDEXER_SA` added (#84, 2026-11-02)
 
-### Merge the Neon secrets (M3, once)
+### Count the secret versions (when adding a secret)
 
-Secret Manager's free tier covers 6 active versions per billing account, so Neon's connection strings
-share three secrets, by who reads them (ADR 0006). After the apply that creates the empty containers,
-copy the values in. No password changes, and nothing reads the merged secrets until the next PR:
+Secret Manager's free tier covers 6 active versions per billing account, and disabled versions
+count, so secrets in other projects on the same account count too. To see this project's number
+without reading any values:
 
 ```bash
-bash infra/scripts/neon-merge-secrets.sh
+for s in $(gcloud secrets list --project "$GCP_PROJECT_ID" --format='value(name)'); do
+  gcloud secrets versions list "$s" --project "$GCP_PROJECT_ID" \
+    --filter='state:ENABLED OR state:DISABLED' --format='value(name)'
+done | wc -l
 ```
-
-It reads each value back and compares it before finishing, without printing anything.
-
-- [ ] M3: Neon secrets merged
 
 ### Create the Neon `dev` branch (M2, once)
 
