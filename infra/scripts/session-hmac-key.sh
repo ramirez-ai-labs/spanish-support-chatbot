@@ -30,8 +30,12 @@ if [ -n "$old_versions" ] && [ "${1:-}" != "--rotate" ]; then
   exit 1
 fi
 
-python3 -c 'import secrets; print(secrets.token_hex(32), end="")' |
-  gcloud secrets versions add "$SECRET" --project "$GCP_PROJECT_ID" --data-file=- --quiet >/dev/null
+# Captured, not piped straight on: a pipeline's stages run at once, so `versions add` would store an
+# empty version, which becomes `latest`, if generating the key failed.
+key="$(python3 -c 'import secrets; print(secrets.token_hex(32), end="")')"
+printf %s "$key" | gcloud secrets versions add "$SECRET" --project "$GCP_PROJECT_ID" \
+  --data-file=- --quiet >/dev/null
+unset key
 echo "Stored a new key in Secret Manager ($SECRET)."
 
 for version in $old_versions; do
