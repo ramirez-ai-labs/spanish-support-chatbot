@@ -192,6 +192,24 @@ resource "google_secret_manager_secret" "turnstile_secret" {
   depends_on = [google_project_service.secretmanager]
 }
 
+# The master key for the sessions' placeholder HMACs, which is never stored with them (ADR 0008).
+# Container only: infra/scripts/session-hmac-key.sh generates the value without printing it. Only the
+# runtime account can read it.
+resource "google_secret_manager_secret" "session_hmac_key" {
+  secret_id = "session-hmac-key"
+  labels    = var.labels
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
 # Identity the API runs as on Cloud Run, instead of the default compute account (which has editor).
 resource "google_service_account" "run" {
   account_id   = "chatbot-run"
@@ -233,6 +251,12 @@ resource "google_secret_manager_secret_iam_member" "run_neon_usage_writer_url" {
 
 resource "google_secret_manager_secret_iam_member" "run_turnstile_secret" {
   secret_id = google_secret_manager_secret.turnstile_secret.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.run.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "run_session_hmac_key" {
+  secret_id = google_secret_manager_secret.session_hmac_key.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.run.email}"
 }
