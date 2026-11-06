@@ -7,7 +7,7 @@ and its table privileges. An app role should show no attributes, no memberships,
 grants its migration gave it. Runs with the owner connection, like migrate.py:
 
     MIGRATIONS_DATABASE_URL="$(gcloud secrets versions access latest --secret neon-owner-urls \\
-        --project "$GCP_PROJECT_ID" | python3 infra/scripts/neon_secret_json.py get main)" \
+        --project "$GCP_PROJECT_ID" | python3 infra/scripts/neon_secret_json.py get main)" \\
         uv run python migrations/grants.py
 """
 
