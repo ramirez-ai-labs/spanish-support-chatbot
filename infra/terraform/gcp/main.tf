@@ -481,6 +481,15 @@ resource "google_cloud_run_v2_service" "api" {
         value = "tf-apply@${var.project_id}.iam.gserviceaccount.com"
       }
       env {
+        name = "NEON_API_URLS" # JSON by role: usage_writer and app_gcp (ADR 0006)
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.neon_api_urls.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
         name = "NEON_USAGE_URL" # usage_writer: INSERT on llm_usage only
         value_source {
           secret_key_ref {
@@ -513,6 +522,7 @@ resource "google_cloud_run_v2_service" "api" {
     google_project_service.run,
     google_project_service.cloudtrace,
     google_secret_manager_secret_iam_member.run_gemini_api_key,
+    google_secret_manager_secret_iam_member.run_neon_api_urls,
     google_secret_manager_secret_iam_member.run_neon_usage_writer_url,
     google_secret_manager_secret_iam_member.run_neon_app_gcp_url,
     google_secret_manager_secret_iam_member.run_turnstile_secret,

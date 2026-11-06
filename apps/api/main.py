@@ -125,6 +125,13 @@ def build_deploy_probe() -> DeployProbe | None:
     return GoogleDeployProbe(email)
 
 
+def neon_url(role: str) -> str:
+    """A database role's connection string, from NEON_API_URLS: JSON by role name, since the API's
+    roles share one secret (ADR 0006)."""
+    url: str = json.loads(os.environ["NEON_API_URLS"])[role]
+    return url
+
+
 def build_usage_sink() -> UsageSink | None:
     """Pick where usage records go from USAGE_SINK; none by default (tests, local runs)."""
     sink = os.environ.get("USAGE_SINK", "none")
@@ -133,7 +140,7 @@ def build_usage_sink() -> UsageSink | None:
     if sink == "neon":
         from adapters.shared.neon_usage import NeonUsageSink
 
-        return NeonUsageSink(os.environ["NEON_USAGE_URL"])
+        return NeonUsageSink(neon_url("usage_writer"))
     raise ValueError(f"Unknown USAGE_SINK: {sink!r} (expected 'neon' or 'none')")
 
 
@@ -216,7 +223,7 @@ def build_pii_detector() -> PIIDetector | None:
 def build_retriever(embedder: Embedder | None, markets: Mapping[str, Market]) -> Retriever | None:
     """Pick where retrieval searches from KNOWLEDGE_STORE; none by default (tests, local runs).
 
-    - neon: the `chunks` table as the read-only app role (NEON_KNOWLEDGE_URL), filled by the
+    - neon: the `chunks` table as the read-only app role (`app_gcp`), filled by the
       indexing workflow.
     - memory: indexes knowledge/ into memory at startup, for local runs and the image's CI test.
     RETRIEVAL_MIN_SCORE drops chunks below it; it's calibrated per embedding model (#86).
@@ -230,7 +237,7 @@ def build_retriever(embedder: Embedder | None, markets: Mapping[str, Market]) ->
     if store == "neon":
         from adapters.shared.neon_knowledge import NeonKnowledgeStore
 
-        knowledge = NeonKnowledgeStore(os.environ["NEON_KNOWLEDGE_URL"])
+        knowledge = NeonKnowledgeStore(neon_url("app_gcp"))
         return Retriever(embedder, knowledge, markets, min_score=min_score)
     if store == "memory":
         from adapters.shared.memory_chunks import MemoryChunkStore
