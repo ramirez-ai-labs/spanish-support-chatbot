@@ -98,7 +98,7 @@ text on the dev machine (Windows). #51 measures again in the Linux image.
   - Numbering uses an HMAC-SHA256 of the normalized value. The session stores the HMAC and its
     number, never the value.
   - The HMAC's key is never stored. Each session's key is derived from one master key in the
-    cloud's secret store (Secret Manager, later Key Vault and AWS Secrets Manager) and the session
+    secret store of whichever cloud runs the API (Secret Manager on GCP) and the session
     ID. A key kept beside the HMACs would let anyone reading the store test guesses, and a 9-digit
     SSN has few enough values to try them all.
   - The master key can be rotated at any time. It costs coherence, not safety: a value seen before
