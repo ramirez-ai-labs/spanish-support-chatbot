@@ -39,6 +39,9 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
+          # Keep downloaded wheels: pruning drops them, so the spaCy model (a GitHub release, often
+          # 504ing) was fetched on every run.
+          prune-cache: false
       - run: uv sync --frozen --all-extras # every cloud's adapters are type-checked and tested
       - name: Chat page scripts parse
         run: for f in ui/*.js; do node --check "$f"; done
@@ -73,10 +76,20 @@ jobs:
         with:
           terraform_version: ${{ steps.tf.outputs.version }}
           terraform_wrapper: false
+      # Providers download from GitHub releases, whose 504s kept failing this job. Cached by lock file,
+      # so GitHub is only needed when a provider changes; init still checks each one against the
+      # lock file's hashes.
+      - name: Cache Terraform providers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('infra/terraform/*/.terraform.lock.hcl') }}
       - name: Format
         run: terraform fmt -check -recursive infra/terraform
       - name: Validate every stack (no cloud access)
         run: |
+          export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
           for dir in infra/terraform/*/; do
             echo "::group::$dir"
             terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
