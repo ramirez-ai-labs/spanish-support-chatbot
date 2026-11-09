@@ -8,7 +8,8 @@ FROM python:3.12-slim AS build
 # The cloud this image is for: installs only that cloud's adapters' dependencies.
 ARG CLOUD=gcp
 COPY --from=uv /uv /usr/local/bin/uv
-ENV UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+# UV_HTTP_RETRIES: the spaCy model is a GitHub release download, which times out under load.
+ENV UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_RETRIES=8
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --extra "$CLOUD"

@@ -40,9 +40,13 @@ jobs:
         with:
           enable-cache: true
           # Keep downloaded wheels: pruning drops them, so the spaCy model (a GitHub release, often
-          # 504ing) was fetched on every run.
+          # 504ing) was fetched on every run. The suffix starts a new key: an existing entry is
+          # never saved over, and the old one was pruned.
           prune-cache: false
+          cache-suffix: unpruned
       - run: uv sync --frozen --all-extras # every cloud's adapters are type-checked and tested
+        env:
+          UV_HTTP_RETRIES: "8" # default 3; GitHub's release downloads time out under load
       - name: Chat page scripts parse
         run: for f in ui/*.js; do node --check "$f"; done
       - name: Lint
@@ -78,24 +82,36 @@ jobs:
           terraform_wrapper: false
       # Providers download from GitHub releases, whose 504s kept failing this job. Cached by lock file,
       # so GitHub is only needed when a provider changes; init still checks each one against the
-      # lock file's hashes.
-      - name: Cache Terraform providers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # lock file's hashes. Saved as soon as init succeeds, even if a later step fails.
+      - name: Restore cached Terraform providers
+        id: tf-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.terraform.d/plugin-cache
           key: terraform-providers-${{ runner.os }}-${{ hashFiles('infra/terraform/*/.terraform.lock.hcl') }}
       - name: Format
         run: terraform fmt -check -recursive infra/terraform
-      - name: Validate every stack (no cloud access)
+      - name: Init every stack (no backend), retrying GitHub's 504s
+        id: init
         run: |
           export TF_PLUGIN_CACHE_DIR="$HOME/.terraform.d/plugin-cache"
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
           for dir in infra/terraform/*/; do
-            echo "::group::$dir"
-            terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
-            terraform -chdir="$dir" validate
-            echo "::endgroup::"
+            for attempt in 1 2 3 4; do
+              terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly && break
+              if [ "$attempt" = 4 ]; then exit 1; fi
+              echo "init of $dir failed (attempt $attempt); retrying in $((attempt * 15))s"
+              sleep $((attempt * 15))
+            done
           done
+      - name: Save the Terraform providers
+        if: always() && steps.init.outcome == 'success' && steps.tf-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('infra/terraform/*/.terraform.lock.hcl') }}
+      - name: Validate every stack (no cloud access)
+        run: for dir in infra/terraform/*/; do terraform -chdir="$dir" validate; done
 
   image:
     name: image
