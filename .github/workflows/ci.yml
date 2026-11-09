@@ -44,7 +44,10 @@ jobs:
           # never saved over, and the old one was pruned.
           prune-cache: false
           cache-suffix: unpruned
-      - run: uv sync --frozen --all-extras # every cloud's adapters are type-checked and tested
+      # Every cloud's adapters are type-checked and tested. Offline first: even with the wheel cached,
+      # uv rechecks a URL dependency (the spaCy model, a GitHub release) with its server, so GitHub's
+      # 504s failed this step with a full cache. Online only when the cache is missing something.
+      - run: uv sync --frozen --all-extras --offline || uv sync --frozen --all-extras
         env:
           UV_HTTP_RETRIES: "8" # default 3; GitHub's release downloads time out under load
       - name: Chat page scripts parse
