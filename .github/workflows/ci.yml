@@ -40,6 +40,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Firestore's emulator, for the session store's contract tests. Google's own image, pinned by
+      # digest. It's about 1 GB, so it pulls in the background while the steps below run; not a
+      # service container, which can't be given the command that starts the emulator.
+      - name: Start the Firestore emulator (in the background)
+        env:
+          IMAGE: gcr.io/google.com/cloudsdktool/google-cloud-cli:592.0.0-emulators@sha256:c3b114528245d315af73d92d95d8e2fed9747ce29003ad46232f22b4542da036
+        run: |
+          nohup docker run --name firestore -p 8085:8085 "$IMAGE" \
+            gcloud emulators firestore start --host-port=0.0.0.0:8085 > firestore.log 2>&1 &
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
@@ -72,11 +81,17 @@ jobs:
         run: uv run lint-imports
       - name: Fetch the pinned e5 model (checksummed), so its contract tests run
         run: uv run python -m adapters.shared.e5 fetch .models/e5
+      - name: Wait for the Firestore emulator
+        run: |
+          for i in $(seq 1 180); do curl -sf localhost:8085 >/dev/null && exit 0; sleep 1; done
+          echo "::error::The Firestore emulator didn't start."; cat firestore.log; exit 1
       - name: Tests
         run: uv run pytest
         env:
           E5_MODEL_DIR: .models/e5
           TEST_DATABASE_URL: postgresql://postgres@localhost:5432/postgres
+          # Without it, the Firestore contract tests skip instead of failing.
+          FIRESTORE_EMULATOR_HOST: localhost:8085
 
   terraform:
     name: terraform
