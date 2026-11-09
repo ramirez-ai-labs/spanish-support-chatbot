@@ -8,7 +8,8 @@ A `PIIDetector` finds spans; this module decides what's removed and how:
 - **Threshold 0.4,** where phone numbers land without context. Over-redacting costs an answer a
   little less specific; under-redacting sends PII to the model.
 - **Placeholders** `<TYPE_n>`, numbered in order of appearance, the same value always getting the
-  same number. Numbered per message for now; sessions number them per conversation, by HMAC.
+  same number: within the message by default, or across a conversation when a session numbers them
+  (`core.sessions.Session`, by HMAC).
 - **Check digits** for the IDs Presidio doesn't know in Spanish (CURP, CLABE, DUI), and for cards
   and bare SSNs typed in shapes its recognizers miss. The adapter's recognizers call these, so a
   number with a wrong one is left alone.
@@ -31,6 +32,7 @@ import unicodedata
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from core.pii import PIISpan
 from core.ports import PIIDetector
@@ -163,23 +165,40 @@ def _chosen(spans: list[PIISpan], text: str) -> list[PIISpan]:
     return sorted(kept, key=lambda s: s.start)
 
 
+class Numbering(Protocol):
+    """Gives each value its placeholder number. `value` is normalized, and must not be stored."""
+
+    def number(self, entity_type: str, value: str) -> int: ...
+
+
+class _MessageNumbering:
+    """Numbers that last for one message: for callers without a session."""
+
+    def __init__(self) -> None:
+        self._numbers: dict[tuple[str, str], int] = {}
+        self._per_type: Counter[str] = Counter()
+
+    def number(self, entity_type: str, value: str) -> int:
+        key = (entity_type, value)
+        if key not in self._numbers:
+            self._per_type[entity_type] += 1
+            self._numbers[key] = self._per_type[entity_type]
+        return self._numbers[key]
+
+
 class Redactor:
     def __init__(self, detector: PIIDetector) -> None:
         self._detector = detector
 
-    def redact(self, text: str) -> Redacted:
+    def redact(self, text: str, numbering: Numbering | None = None) -> Redacted:
         """Raises `core.pii.DetectorUnavailable` if the detector fails: the caller fails closed."""
         text = plain(text)
         spans = _chosen(self._detector.detect(text), text)
-        numbers: dict[tuple[str, str], int] = {}
-        per_type: Counter[str] = Counter()
+        numbering = numbering if numbering is not None else _MessageNumbering()
         pieces, cursor = [], 0
         for span in spans:
-            key = (span.entity_type, _normalized(text[span.start : span.end]))
-            if key not in numbers:
-                per_type[span.entity_type] += 1
-                numbers[key] = per_type[span.entity_type]
-            pieces += [text[cursor : span.start], f"<{span.entity_type}_{numbers[key]}>"]
+            number = numbering.number(span.entity_type, _normalized(text[span.start : span.end]))
+            pieces += [text[cursor : span.start], f"<{span.entity_type}_{number}>"]
             cursor = span.end
         pieces.append(text[cursor:])
         counts = Counter(span.entity_type for span in spans)
