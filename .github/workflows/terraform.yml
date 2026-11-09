@@ -67,6 +67,14 @@ jobs:
         with:
           terraform_version: ${{ steps.tf.outputs.version }}
           terraform_wrapper: false
+      # Read-only: restores the providers that ci.yml caches on main (same key). Main's jobs only see
+      # main's caches, and init still checks each provider against the lock file.
+      - name: Restore cached Terraform providers
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('infra/terraform/*/.terraform.lock.hcl') }}
+      - run: echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
       - name: Log in as the read-only plan account (keyless)
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
@@ -87,7 +95,7 @@ jobs:
           fi
           echo "Refused as expected: $(head -1 err.txt)"
       - name: Init
-        run: terraform -chdir="$STACK" init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -lockfile=readonly
+        run: bash infra/scripts/tf-init.sh "$STACK" -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
       - name: Plan (no state lock; the plan account cannot write state)
         run: |
           terraform -chdir="$STACK" plan -lock=false -no-color | tee plan.txt
@@ -179,6 +187,14 @@ jobs:
         with:
           terraform_version: ${{ steps.tf.outputs.version }}
           terraform_wrapper: false
+      # Read-only: restores the providers that ci.yml caches on main (same key). Main's jobs only see
+      # main's caches, and init still checks each provider against the lock file.
+      - name: Restore cached Terraform providers
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('infra/terraform/*/.terraform.lock.hcl') }}
+      - run: echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
       - name: Log in as the apply account (keyless, prod only)
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
@@ -190,12 +206,12 @@ jobs:
           TF_VAR_cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           shared=infra/terraform/shared
-          terraform -chdir="$shared" init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -lockfile=readonly
+          bash infra/scripts/tf-init.sh "$shared" -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
           terraform -chdir="$shared" plan -no-color -out=tfplan | tee shared-plan.txt
           terraform -chdir="$shared" apply -no-color tfplan
           { echo "### shared stack applied"; grep -E '^(Plan:|No changes)' shared-plan.txt || true; } >> "$GITHUB_STEP_SUMMARY"
       - name: Init
-        run: terraform -chdir="$STACK" init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -lockfile=readonly
+        run: bash infra/scripts/tf-init.sh "$STACK" -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
       - name: Plan
         run: terraform -chdir="$STACK" plan -no-color -out=tfplan | tee plan.txt
       - name: Apply
