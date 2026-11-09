@@ -214,6 +214,22 @@ read the secret when they start.
 - [x] M1: Turnstile secret rotated and stored, 2026-11-01 (this also retires the copy PR jobs could read before
   the state bucket's policy was made authoritative)
 
+### Session HMAC key (M3, once, and to rotate)
+
+The master key for the sessions' placeholder HMACs (ADR 0008). After the apply that creates the
+`session-hmac-key` container, and before the deploy that reads it:
+
+```bash
+bash infra/scripts/session-hmac-key.sh            # first time; refuses if a value exists
+bash infra/scripts/session-hmac-key.sh --rotate   # replaces it, and destroys older versions
+```
+
+It generates the value and stores it without printing it. Redeploy after rotating, because instances
+read the secret when they start. Rotating loses nothing that matters: values seen before get new
+placeholder numbers in sessions already open.
+
+- [ ] M3: session HMAC key stored
+
 ### Create the Neon project (M1, once)
 
 Neon isn't in Terraform ([ADR 0006](../docs/adr/0006-neon-outside-terraform.md)): its provider saves
