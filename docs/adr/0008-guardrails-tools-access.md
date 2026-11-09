@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-03
-- **Amended:** 2026-11-05: action tools are offered to every signed-in caller, so step-up can be reached
+- **Amended:** 2026-11-05: action tools are offered to every signed-in caller, so step-up can be reached; expired sessions are refused on read and swept on create, and only a session's exact owner may use it; the placeholder HMAC's key comes from a master key in the secret store
 - **Milestone:** M3 (#51)
 
 ## Context
@@ -95,8 +95,14 @@ text on the dev machine (Windows). #51 measures again in the Linux image.
 - **Placeholders:** `<TYPE_n>`, such as `<PERSON_1>` or `<MX_CURP_1>`, numbered per
   conversation. The same value gets the same placeholder on every turn, so a conversation about
   `<PERSON_1>` stays coherent.
-  - Numbering uses an HMAC-SHA256 of the normalized value, under a random key per session. The
-    session stores the HMAC and its number, never the value.
+  - Numbering uses an HMAC-SHA256 of the normalized value. The session stores the HMAC and its
+    number, never the value.
+  - The HMAC's key is never stored. Each session's key is derived from one master key in the
+    secret store of whichever cloud runs the API (Secret Manager on GCP) and the session
+    ID. A key kept beside the HMACs would let anyone reading the store test guesses, and a 9-digit
+    SSN has few enough values to try them all.
+  - The master key can be rotated at any time. It costs coherence, not safety: a value seen before
+    gets a new number, and the session's counters keep two values from sharing one.
   - **Placeholders are never filled back in.** That would need the values stored, and the page
     already shows what the customer typed. The system prompt says placeholders are protected data
     and not to repeat them. Any that reach the answer become «[dato protegido]».
@@ -198,8 +204,20 @@ Placeholders, repeated questions and pending actions all need them.
   DynamoDB can follow in M7 and M8.
 - **IDs:** random and 128-bit, returned to the page.
   - A signed-in session is bound to its `sub` and refused to any other `sub`; it lasts 30 days.
-  - An anonymous session is bound to no one and lasts 1 day.
+  - An anonymous session has no owner, is refused to signed-in callers and lasts 1 day. Signing in
+    starts a new session: continuing an anonymous one would let whoever knew its ID write into a
+    customer's history, which reaches the model. The cost is that the model forgets what was asked
+    before signing in.
 - **Contents:** only redacted text. The model gets the last 6 turns.
+- **Saves are version-checked.** A save applies only if the session is unchanged since it was
+  loaded, so a stale request can't overwrite a newer turn. Firestore, Cosmos DB and DynamoDB can
+  all enforce this.
+- **Expiry:** Firestore's TTL policies have no free usage, so the store doesn't delete on a timer.
+  - An expired session is refused on read, and the contract suite proves it for every adapter.
+    That is the guarantee; deletion only reclaims space.
+  - Saving a new session also deletes up to 5 expired ones. Deleting more than are created keeps
+    the store from growing, stays inside the free deletes (20k a day) and needs no scheduler. A
+    failed sweep costs nothing, since the next one retries.
 
 ### Handoff
 
