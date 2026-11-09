@@ -234,7 +234,7 @@ placeholder numbers in sessions already open.
 
 Neon isn't in Terraform ([ADR 0006](../docs/adr/0006-neon-outside-terraform.md)): its provider saves
 live passwords in state on every refresh, and roles it creates get `neon_superuser`. Instead, after
-the apply that creates the empty `neon-owner-url` secret, run the checked-in script from the repo
+the apply that creates the empty `neon-owner-urls` secret, run the checked-in script from the repo
 root:
 
 ```bash
@@ -243,12 +243,12 @@ bash infra/scripts/neon-bootstrap.sh
 
 It creates the `spanish-support-chatbot` project in AWS us-east-1 (Postgres 17, compute fixed at
 0.25 CU, so the free 100 CU-hours a month last 400 hours) with the `main` branch, the `chatbot`
-database and the `chatbot_owner` role. It pipes the owner's connection string into
-`neon-owner-url` without printing it. It's safe to rerun: an existing project is kept, and the
-secret is only filled while it's empty.
+database and the `chatbot_owner` role. It stores the owner's connection string in
+`neon-owner-urls` without printing it. It's safe to rerun: an existing project is kept, and a stored
+connection string isn't replaced.
 
-App roles are created by SQL migrations, each with only its own grants. Their passwords go straight
-into their own secrets.
+App roles are created by SQL migrations, each with only its own grants. Their connection strings
+go straight into the secret their reader already has.
 
 To rotate the owner password, for example after it was exposed, run
 `bash infra/scripts/neon-bootstrap.sh --rotate-owner`. It resets the password through Neon's API,
@@ -264,7 +264,8 @@ as the Neon owner, read from Secret Manager straight into the command's environm
 
 ```bash
 export MIGRATIONS_DATABASE_URL="$(gcloud secrets versions access latest \
-  --secret neon-owner-url --project "$GCP_PROJECT_ID")"
+  --secret neon-owner-urls --project "$GCP_PROJECT_ID" |
+  python3 infra/scripts/neon_secret_json.py get main)"
 uv run python migrations/migrate.py --status   # read-only: what's applied and pending
 uv run python migrations/migrate.py            # apply what's pending
 uv run python migrations/grants.py             # read-only: each app role's privileges
@@ -272,7 +273,7 @@ unset MIGRATIONS_DATABASE_URL
 ```
 
 Once the `dev` branch exists (below), apply every migration there too: run the same commands with
-`--secret neon-owner-dev-url`. The indexing workflow checks `dev` before `main`, so both need the
+`get dev`. The indexing workflow checks `dev` before `main`, so both need the
 same schema.
 
 **Apply a migration before deploying code that uses it.** Migrations get their own PR. Merge it, run
@@ -282,13 +283,14 @@ first means the app writes a column that doesn't exist yet: the write fails, and
 
 When a migration adds an app role, give it a password. The script generates one, sets it over the
 owner's TLS connection (Neon accepts only plain passwords, not SCRAM hashes), and stores the role's
-connection string in its own secret without printing it. Run it again to rotate (then redeploy):
+connection string without printing it, leaving the others in that secret as they were. Run it again
+to rotate (then redeploy):
 
 ```bash
-bash infra/scripts/neon-role-password.sh usage_writer   # -> neon-usage-writer-url
-bash infra/scripts/neon-role-password.sh app_gcp        # -> neon-app-gcp-url
-bash infra/scripts/neon-role-password.sh indexer        # -> neon-indexer-url
-bash infra/scripts/neon-role-password.sh indexer dev    # -> neon-indexer-dev-url
+bash infra/scripts/neon-role-password.sh usage_writer   # -> neon-api-urls
+bash infra/scripts/neon-role-password.sh app_gcp        # -> neon-api-urls
+bash infra/scripts/neon-role-password.sh indexer        # -> neon-indexer-urls
+bash infra/scripts/neon-role-password.sh indexer dev    # -> neon-indexer-urls
 ```
 
 The secret's container must exist first (the `gcp` stack creates it), and the code that reads it
@@ -296,10 +298,10 @@ lands only after the value is in.
 
 | Role | Can | Secret | Read by |
 | --- | --- | --- | --- |
-| `chatbot_owner` | everything (Neon admin role); migrations only | `neon-owner-url`, `neon-owner-dev-url` | you |
-| `usage_writer` | `INSERT` into `llm_usage`, nothing else | `neon-usage-writer-url` | `chatbot-run` |
-| `app_gcp` | `SELECT` on `chunks`, nothing else | `neon-app-gcp-url` | `chatbot-run` |
-| `indexer` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on `chunks`, nothing else | `neon-indexer-url`, `neon-indexer-dev-url` | `indexer-ci` |
+| `chatbot_owner` | everything (Neon admin role); migrations only | `neon-owner-urls` | you |
+| `usage_writer` | `INSERT` into `llm_usage`, nothing else | `neon-api-urls` | `chatbot-run` |
+| `app_gcp` | `SELECT` on `chunks`, nothing else | `neon-api-urls` | `chatbot-run` |
+| `indexer` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on `chunks`, nothing else | `neon-indexer-urls` | `indexer-ci` |
 
 `indexer-ci` is the knowledge indexing workflow's account (ADR 0007). Google trusts it only for
 `.github/workflows/index.yml` running from `main`, through the `workflow` attribute (the token's
@@ -310,15 +312,28 @@ Actions secret `GCP_INDEXER_SA` (bootstrap output `indexer_service_account`).
 - [x] M2: migration 0004 applied (2026-11-02)
 - [x] M2: `app_gcp` and `indexer` passwords set; `GCP_INDEXER_SA` added (#84, 2026-11-02)
 
+### Count the secret versions (when adding a secret)
+
+Secret Manager's free tier covers 6 active versions per billing account, and disabled versions
+count, so secrets in other projects on the same account count too. To see this project's number
+without reading any values:
+
+```bash
+for s in $(gcloud secrets list --project "$GCP_PROJECT_ID" --format='value(name)'); do
+  gcloud secrets versions list "$s" --project "$GCP_PROJECT_ID" \
+    --filter='state:ENABLED OR state:DISABLED' --format='value(name)'
+done | wc -l
+```
+
 ### Create the Neon `dev` branch (M2, once)
 
 The indexing workflow fills `dev` first, checks it, and only then fills `main`
 ([ADR 0007](../docs/adr/0007-rag-design.md), #86). After the apply that creates the empty
-`neon-owner-dev-url` and `neon-indexer-dev-url` secrets, from the repo root:
+`neon-owner-urls` and `neon-indexer-urls` secrets, from the repo root:
 
 ```bash
-bash infra/scripts/neon-bootstrap.sh                   # creates dev from main -> neon-owner-dev-url
-bash infra/scripts/neon-role-password.sh indexer dev   # -> neon-indexer-dev-url
+bash infra/scripts/neon-bootstrap.sh                   # creates dev from main -> neon-owner-urls
+bash infra/scripts/neon-role-password.sh indexer dev   # -> neon-indexer-urls
 ```
 
 The branch is a copy of `main`, so it already has every migration and role applied there. It has

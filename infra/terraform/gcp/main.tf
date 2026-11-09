@@ -54,6 +54,7 @@ resource "google_project_service" "secretmanager" {
 # Container only: the value is added by hand (infra/BOOTSTRAP.md, section 6), never by Terraform,
 # because state is readable by the plan account. Always free up to 6 active versions and 10,000
 # accesses a month; one replica in the app's region keeps it to one billable location.
+# A new secret must fit in an existing one: tests/unit/test_free_tier.py keeps the count at 6.
 resource "google_secret_manager_secret" "gemini_api_key" {
   secret_id = "gemini-api-key"
   labels    = var.labels
@@ -69,11 +70,14 @@ resource "google_secret_manager_secret" "gemini_api_key" {
   depends_on = [google_project_service.secretmanager]
 }
 
-# Connection string for the Neon project owner, used only to run migrations and set role passwords
-# (ADR 0006). Container only: infra/scripts/neon-bootstrap.sh adds the value. Nothing is granted
-# access, so only the project owner can read it; the app gets its own least-privilege role.
-resource "google_secret_manager_secret" "neon_owner_url" {
-  secret_id = "neon-owner-url"
+# Neon's connection strings, merged by who reads them, as JSON (ADR 0006): Secret Manager's free
+# tier counts versions, and sharing one gives no account anything it couldn't already read.
+# Containers only: neon-bootstrap.sh and neon-role-password.sh in infra/scripts/ write the values.
+# - neon-owner-urls: the owner on main and dev. Nothing is granted, so only the project owner reads it.
+# - neon-indexer-urls: indexer on main and dev. Read by the indexing workflow's account.
+# - neon-api-urls: the API's roles, by name. Read by the runtime account.
+resource "google_secret_manager_secret" "neon_owner_urls" {
+  secret_id = "neon-owner-urls"
   labels    = var.labels
 
   replication {
@@ -87,11 +91,8 @@ resource "google_secret_manager_secret" "neon_owner_url" {
   depends_on = [google_project_service.secretmanager]
 }
 
-# Connection string for the `usage_writer` role (INSERT on llm_usage only), which the API uses to
-# record LLM usage. Container only: infra/scripts/neon-role-password.sh sets the role's password and
-# adds the value. Only the runtime account can read it.
-resource "google_secret_manager_secret" "neon_usage_writer_url" {
-  secret_id = "neon-usage-writer-url"
+resource "google_secret_manager_secret" "neon_indexer_urls" {
+  secret_id = "neon-indexer-urls"
   labels    = var.labels
 
   replication {
@@ -105,62 +106,8 @@ resource "google_secret_manager_secret" "neon_usage_writer_url" {
   depends_on = [google_project_service.secretmanager]
 }
 
-# Connection strings for the knowledge roles (migration 0004, ADR 0007). Containers only:
-# infra/scripts/neon-role-password.sh sets each role's password and adds the value.
-# - neon-app-gcp-url: app_gcp, SELECT on chunks. Read by the API.
-# - neon-indexer-url: indexer, writes chunks only. Read by the indexing workflow's account.
-resource "google_secret_manager_secret" "neon_app_gcp_url" {
-  secret_id = "neon-app-gcp-url"
-  labels    = var.labels
-
-  replication {
-    user_managed {
-      replicas {
-        location = var.region
-      }
-    }
-  }
-
-  depends_on = [google_project_service.secretmanager]
-}
-
-resource "google_secret_manager_secret" "neon_indexer_url" {
-  secret_id = "neon-indexer-url"
-  labels    = var.labels
-
-  replication {
-    user_managed {
-      replicas {
-        location = var.region
-      }
-    }
-  }
-
-  depends_on = [google_project_service.secretmanager]
-}
-
-# The Neon `dev` branch, which the indexing workflow fills and checks before `main` (ADR 0007, #86).
-# Containers only: infra/scripts/neon-bootstrap.sh creates the branch and adds its owner's value;
-# neon-role-password.sh indexer dev adds the indexer's.
-# - neon-owner-dev-url: the owner on dev, for migrations. Nothing is granted, as for neon-owner-url.
-# - neon-indexer-dev-url: indexer on dev. Read by the indexing workflow's account.
-resource "google_secret_manager_secret" "neon_owner_dev_url" {
-  secret_id = "neon-owner-dev-url"
-  labels    = var.labels
-
-  replication {
-    user_managed {
-      replicas {
-        location = var.region
-      }
-    }
-  }
-
-  depends_on = [google_project_service.secretmanager]
-}
-
-resource "google_secret_manager_secret" "neon_indexer_dev_url" {
-  secret_id = "neon-indexer-dev-url"
+resource "google_secret_manager_secret" "neon_api_urls" {
+  secret_id = "neon-api-urls"
   labels    = var.labels
 
   replication {
@@ -223,28 +170,14 @@ resource "google_secret_manager_secret_iam_member" "run_gemini_api_key" {
   member    = "serviceAccount:${google_service_account.run.email}"
 }
 
-resource "google_secret_manager_secret_iam_member" "run_neon_app_gcp_url" {
-  secret_id = google_secret_manager_secret.neon_app_gcp_url.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.run.email}"
-}
-
-# The indexing workflow's account (bootstrap stack) reads the indexer's secrets, one per branch, and
-# nothing else.
-resource "google_secret_manager_secret_iam_member" "indexer_neon_indexer_url" {
-  secret_id = google_secret_manager_secret.neon_indexer_url.id
+resource "google_secret_manager_secret_iam_member" "indexer_neon_indexer_urls" {
+  secret_id = google_secret_manager_secret.neon_indexer_urls.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:indexer-ci@${var.project_id}.iam.gserviceaccount.com"
 }
 
-resource "google_secret_manager_secret_iam_member" "indexer_neon_indexer_dev_url" {
-  secret_id = google_secret_manager_secret.neon_indexer_dev_url.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:indexer-ci@${var.project_id}.iam.gserviceaccount.com"
-}
-
-resource "google_secret_manager_secret_iam_member" "run_neon_usage_writer_url" {
-  secret_id = google_secret_manager_secret.neon_usage_writer_url.id
+resource "google_secret_manager_secret_iam_member" "run_neon_api_urls" {
+  secret_id = google_secret_manager_secret.neon_api_urls.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.run.email}"
 }
@@ -411,15 +344,6 @@ resource "google_cloud_run_v2_service" "api" {
         value = "neon"
       }
       env {
-        name = "NEON_KNOWLEDGE_URL" # app_gcp: SELECT on chunks only
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.neon_app_gcp_url.secret_id
-            version = "latest"
-          }
-        }
-      }
-      env {
         # Drops only clear noise: off-topic questions score up to 0.874 and some correct matches
         # 0.851, so the prompt's rule says "I don't know", not this (#86, build log)
         name  = "RETRIEVAL_MIN_SCORE"
@@ -442,10 +366,10 @@ resource "google_cloud_run_v2_service" "api" {
         value = "tf-apply@${var.project_id}.iam.gserviceaccount.com"
       }
       env {
-        name = "NEON_USAGE_URL" # usage_writer: INSERT on llm_usage only
+        name = "NEON_API_URLS" # JSON by role: usage_writer and app_gcp (ADR 0006)
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.neon_usage_writer_url.secret_id
+            secret  = google_secret_manager_secret.neon_api_urls.secret_id
             version = "latest"
           }
         }
@@ -474,8 +398,7 @@ resource "google_cloud_run_v2_service" "api" {
     google_project_service.run,
     google_project_service.cloudtrace,
     google_secret_manager_secret_iam_member.run_gemini_api_key,
-    google_secret_manager_secret_iam_member.run_neon_usage_writer_url,
-    google_secret_manager_secret_iam_member.run_neon_app_gcp_url,
+    google_secret_manager_secret_iam_member.run_neon_api_urls,
     google_secret_manager_secret_iam_member.run_turnstile_secret,
   ]
 }

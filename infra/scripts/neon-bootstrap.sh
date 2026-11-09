@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Creates the Neon project once, outside Terraform (ADR 0006), and stores the owner's connection
 # string in Secret Manager without ever printing it. Safe to rerun: an existing project is kept,
-# and the secret is only filled when it has no enabled version.
+# and a stored connection string isn't replaced.
 #
 # It also creates the `dev` branch, which the indexing workflow fills and checks before `main`
-# (ADR 0007), and stores that branch's owner connection string in `neon-owner-dev-url`. The branch
-# is copied from `main`, so run this after the migrations that create the app roles.
+# (ADR 0007), and stores that branch's owner connection string beside `main`'s in `neon-owner-urls`.
+# The branch is copied from `main`, so run this after the migrations that create the app roles.
 #
-# Run from the repo root, after the apply that creates the `neon-owner-url` and `neon-owner-dev-url`
-# secret containers:
+# Run from the repo root, after the apply that creates the `neon-owner-urls` secret container:
 #   bash infra/scripts/neon-bootstrap.sh
 # To rotate the owner password on `main` (e.g. after it was exposed), which also destroys older
 # versions (`dev` keeps its own password, copied when the branch was created):
@@ -28,8 +27,8 @@ NAME="spanish-support-chatbot"
 REGION="aws-us-east-1" # same region as the plan: a few ms from Cloud Run us-east4 (ADR 0002)
 DATABASE="chatbot"
 OWNER="chatbot_owner"
-SECRET="neon-owner-url"
-DEV_SECRET="neon-owner-dev-url"
+SECRET="neon-owner-urls"
+JSON="python3 infra/scripts/neon_secret_json.py"
 
 neon() {
   curl -sS --fail-with-body -H "Authorization: Bearer $NEON_API_KEY" \
@@ -47,12 +46,10 @@ for key in sys.argv[1].split("."):
 print(value)' "$1"
 }
 
-for secret in "$SECRET" "$DEV_SECRET"; do
-  if ! gcloud secrets describe "$secret" --project "$GCP_PROJECT_ID" --format="value(name)" >/dev/null; then
-    echo "The $secret secret container doesn't exist yet: merge and apply the gcp stack first." >&2
-    exit 1
-  fi
-done
+if ! gcloud secrets describe "$SECRET" --project "$GCP_PROJECT_ID" --format="value(name)" >/dev/null; then
+  echo "The $SECRET secret container doesn't exist yet: merge and apply the gcp stack first." >&2
+  exit 1
+fi
 
 # The ID of the branch with this name, or nothing.
 branch_id() {
@@ -61,10 +58,41 @@ import json, sys
 print(next((b["id"] for b in json.load(sys.stdin)["branches"] if b["name"] == sys.argv[1]), ""))' "$1"
 }
 
-# How many enabled versions a secret has.
+# The secret's enabled versions.
 enabled_versions() {
-  gcloud secrets versions list "$1" --project "$GCP_PROJECT_ID" \
-    --filter="state:ENABLED" --format="value(name)" 2>/dev/null | wc -l | tr -d ' '
+  gcloud secrets versions list "$SECRET" --project "$GCP_PROJECT_ID" \
+    --filter="state:ENABLED" --format="value(name)" 2>/dev/null
+}
+
+# The secret's JSON, or an empty object before the first value.
+current_urls() {
+  if [ -n "$(enabled_versions)" ]; then
+    gcloud secrets versions access latest --secret "$SECRET" --project "$GCP_PROJECT_ID"
+  else
+    printf '{}'
+  fi
+}
+
+# Whether a branch's connection string is stored.
+has_url() {
+  current_urls | $JSON has "$1"
+}
+
+# Stores a branch's connection string beside the other one, and destroys the older versions, which
+# would otherwise count against the free tier.
+store_url() {
+  local old_versions version current merged
+  old_versions="$(enabled_versions)"
+  # Captured, not piped straight on: a pipeline's stages run at once, so `versions add` would store
+  # an empty version, which becomes `latest`, if reading or updating the JSON failed.
+  current="$(current_urls)"
+  merged="$(printf %s "$current" | NEW_VALUE="$2" $JSON set "$1")"
+  printf %s "$merged" | gcloud secrets versions add "$SECRET" --project "$GCP_PROJECT_ID" \
+    --data-file=- --quiet >/dev/null
+  for version in $old_versions; do
+    gcloud secrets versions destroy "$version" --secret "$SECRET" --project "$GCP_PROJECT_ID" --quiet >/dev/null
+    echo "Destroyed the old version $version."
+  done
 }
 
 project_id="$(neon "$API/projects?search=$NAME" | python3 -c '
@@ -97,7 +125,6 @@ else
   echo "Neon project $NAME already exists ($project_id); leaving it as it is."
 fi
 
-enabled="$(enabled_versions "$SECRET")"
 rotate="${1:-}"
 if [ "$rotate" = "--rotate-owner" ]; then
   main_id="$(branch_id main)"
@@ -106,29 +133,21 @@ if [ "$rotate" = "--rotate-owner" ]; then
   sleep 5 # the reset is applied asynchronously
   owner_url="$(neon "$API/projects/$project_id/connection_uri?database_name=$DATABASE&role_name=$OWNER" |
     field uri)"
-  old_versions="$(gcloud secrets versions list "$SECRET" --project "$GCP_PROJECT_ID" \
-    --filter="state:ENABLED" --format="value(name)" 2>/dev/null)"
-  printf %s "$owner_url" | gcloud secrets versions add "$SECRET" --project "$GCP_PROJECT_ID" \
-    --data-file=- --quiet >/dev/null
+  store_url main "$owner_url"
   unset owner_url
   echo "Stored the new owner connection string in Secret Manager ($SECRET)."
-  for version in $old_versions; do
-    gcloud secrets versions destroy "$version" --secret "$SECRET" --project "$GCP_PROJECT_ID" --quiet >/dev/null
-    echo "Destroyed the old version $version."
-  done
   exit 0
 fi
 
-if [ "$enabled" = "0" ]; then
+if ! has_url main; then
   if [ -z "$owner_url" ]; then
     owner_url="$(neon "$API/projects/$project_id/connection_uri?database_name=$DATABASE&role_name=$OWNER" |
       field uri)"
   fi
-  printf %s "$owner_url" | gcloud secrets versions add "$SECRET" --project "$GCP_PROJECT_ID" \
-    --data-file=- --quiet >/dev/null
+  store_url main "$owner_url"
   echo "Stored the owner connection string in Secret Manager ($SECRET)."
 else
-  echo "$SECRET already has an enabled version; not changed."
+  echo "$SECRET already has main's connection string; not changed."
 fi
 unset owner_url
 
@@ -154,13 +173,12 @@ else
   echo "The dev branch already exists ($dev_id); leaving it as it is."
 fi
 
-if [ "$(enabled_versions "$DEV_SECRET")" = "0" ]; then
+if ! has_url dev; then
   dev_url="$(neon "$API/projects/$project_id/connection_uri?branch_id=$dev_id&database_name=$DATABASE&role_name=$OWNER" |
     field uri)"
-  printf %s "$dev_url" | gcloud secrets versions add "$DEV_SECRET" --project "$GCP_PROJECT_ID" \
-    --data-file=- --quiet >/dev/null
-  echo "Stored the dev owner connection string in Secret Manager ($DEV_SECRET)."
+  store_url dev "$dev_url"
+  echo "Stored the dev owner connection string in Secret Manager ($SECRET)."
 else
-  echo "$DEV_SECRET already has an enabled version; not changed."
+  echo "$SECRET already has dev's connection string; not changed."
 fi
 unset dev_url

@@ -52,6 +52,26 @@ four problems:
 - **Wait for `neondatabase/neon`.** It may handle passwords better, but there is no release to
   check yet, and #20 and #22 depend on the database.
 
+## Amendment, 2026-11-06: connection strings share secrets
+
+Secret Manager's free tier covers 6 active versions per billing account, and each connection string
+had its own secret: 6 for Neon alone, and 9 in all with the session key. So they're now merged by
+who reads them, as JSON in one version:
+
+| Secret | Holds | Read by |
+| --- | --- | --- |
+| `neon-owner-urls` | the owner on `main` and `dev` | the project owner |
+| `neon-indexer-urls` | `indexer` on `main` and `dev` | `indexer-ci` |
+| `neon-api-urls` | the API's roles, by name | `chatbot-run` |
+
+- **No account can read anything new.** Each secret holds only what its reader could already read,
+  and the database roles still separate what each connection can do.
+- **Merged values rotate one at a time.** A rotation writes a new version holding every value, and
+  only the one role's password changes. The old version is destroyed straight after, so a rotation
+  briefly exceeds the free tier by one version.
+- **Outside tools don't help.** HCP Vault Secrets has closed, self-hosting Vault needs an always-on
+  server, and any hosted tool still needs a token stored somewhere.
+
 ## Consequences
 
 - No database credential is in Terraform state, in CI or in a PR's reach, and the app's roles are

@@ -79,9 +79,8 @@ jobs:
           PROJECT: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           for branch in dev main; do
-            secret="neon-indexer-url"
-            if [ "$branch" = dev ]; then secret="neon-indexer-dev-url"; fi
-            url="$(gcloud secrets versions access latest --secret "$secret" --project "$PROJECT")"
+            url="$(gcloud secrets versions access latest --secret neon-indexer-urls --project "$PROJECT" |
+              python3 infra/scripts/neon_secret_json.py get "$branch")"
             echo "::add-mask::$url"
             printf %s "$url" | python3 -c '
           import sys

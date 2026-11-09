@@ -7,8 +7,9 @@ forward with a new migration instead.
 Runs with the Neon owner connection (ADR 0006), read from Secret Manager into the environment so
 it never lands in shell history:
 
-    MIGRATIONS_DATABASE_URL="$(gcloud secrets versions access latest --secret neon-owner-url \\
-        --project "$GCP_PROJECT_ID")" uv run python migrations/migrate.py [--status]
+    MIGRATIONS_DATABASE_URL="$(gcloud secrets versions access latest --secret neon-owner-urls \\
+        --project "$GCP_PROJECT_ID" | python3 infra/scripts/neon_secret_json.py get main)" \\
+        uv run python migrations/migrate.py [--status]
 """
 
 import hashlib

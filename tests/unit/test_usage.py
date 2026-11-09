@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator
 
 import psycopg
@@ -8,7 +9,7 @@ from fastapi.testclient import TestClient
 from adapters.shared.memory_usage import MemoryUsageSink
 from adapters.shared.mock_llm import MOCK_REPLY, MockLLM
 from adapters.shared.neon_usage import NeonUsageSink
-from apps.api.main import build_usage_sink, create_app
+from apps.api.main import build_usage_sink, create_app, neon_url
 from core.chat import PROMPT_PARTS, ChatService
 from core.redaction import unredacted
 from core.usage import LLMUsage, TokenUsage
@@ -106,11 +107,30 @@ def test_usage_sink_choice(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("USAGE_SINK", raising=False)
     assert build_usage_sink() is None
     monkeypatch.setenv("USAGE_SINK", "neon")
-    monkeypatch.setenv("NEON_USAGE_URL", "postgresql://u:p@127.0.0.1:1/db")
+    monkeypatch.setenv("NEON_API_URLS", '{"usage_writer": "postgresql://u:p@127.0.0.1:1/db"}')
     assert isinstance(build_usage_sink(), NeonUsageSink)
     monkeypatch.setenv("USAGE_SINK", "nope")
     with pytest.raises(ValueError, match="Unknown USAGE_SINK"):
         build_usage_sink()
+
+
+def test_each_role_gets_its_own_connection_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    urls = {
+        "usage_writer": "postgresql://a@127.0.0.1:1/db",
+        "app_gcp": "postgresql://b@127.0.0.1:1/db",
+    }
+    monkeypatch.setenv("NEON_API_URLS", json.dumps(urls))
+    assert neon_url("usage_writer") == urls["usage_writer"]
+    assert neon_url("app_gcp") == urls["app_gcp"]
+
+
+def test_a_missing_role_stops_the_start_without_showing_the_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NEON_API_URLS", '{"app_gcp": "postgresql://secret@127.0.0.1:1/db"}')
+    with pytest.raises(KeyError) as failure:
+        neon_url("usage_writer")
+    assert "secret" not in str(failure.value)
 
 
 class FakeConnection:
