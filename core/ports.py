@@ -11,6 +11,7 @@ from core.usage import LLMUsage, TokenUsage
 if TYPE_CHECKING:  # core.indexing and core.retrieval import this module
     from core.indexing import StoredChunk
     from core.retrieval import RetrievedChunk
+    from core.sessions import Session
 
 
 class LLMProvider(Protocol):
@@ -85,6 +86,32 @@ class UsageSink(Protocol):
     """
 
     async def record(self, usage: LLMUsage) -> None: ...
+
+
+class SessionStore(Protocol):
+    """Keeps conversation sessions, keyed by their random ID (ADR 0008).
+
+    Stores and returns `core.sessions.to_record`'s data unchanged; the rules on owners and contents
+    are in `core.sessions`. Every method blocks: the API calls them off the event loop. Raises
+    `core.sessions.SessionUnavailable` if the store can't be reached, and never logs a session's
+    contents.
+    """
+
+    def load(self, session_id: str, now: float) -> "Session | None":
+        """The session, or None if it's unknown or has expired by `now`, even if not yet deleted."""
+        ...
+
+    def save(self, session: "Session") -> None:
+        """Stores it if it's unchanged since it was loaded, and raises its `version` by one.
+
+        Version 0 creates it. Raises `core.sessions.SessionConflict`, storing nothing, if the stored
+        version differs: another request saved first, or the session was deleted.
+        """
+        ...
+
+    def delete_expired(self, now: float, limit: int) -> int:
+        """Deletes up to `limit` sessions expired by `now`, and returns how many."""
+        ...
 
 
 class IdentityProvider(Protocol):
