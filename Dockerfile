@@ -2,7 +2,7 @@
 # Local and (from M1) Cloud Run image. Multi-stage: uv resolves into a venv, the runtime stage
 # copies only the venv and source, and runs as a non-root user.
 
-FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.7 AS uv
 
 FROM python:3.12-slim AS build
 # The cloud this image is for: installs only that cloud's adapters' dependencies.
