@@ -324,11 +324,25 @@ jobs:
               --format 'value(image_summary.digest)' 2>/dev/null || true)"
           fi
           [ -n "${keep// /}" ] || { echo "::error::Couldn't resolve the live image's digest; nothing pruned."; exit 1; }
+          # A push can be an image index (newer runners' Docker adds an attestation manifest), whose
+          # children are listed as images of their own and can't be deleted while it exists. So a kept
+          # index keeps its children, and indexes go before the manifests they point to.
+          token="$(gcloud auth print-access-token)"
+          for digest in $keep; do
+            keep="$keep $(curl -fsS -u "oauth2accesstoken:$token" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+              "https://$REGION-docker.pkg.dev/v2/$PROJECT_ID/app/api/manifests/$digest" \
+              | jq -r '.manifests[]?.digest' | tr '\n' ' ')"
+          done
           deleted=0
-          for digest in $(gcloud artifacts docker images list "$repo" --format 'value(version)'); do
-            case " $keep " in *" $digest "*) continue ;; esac
-            gcloud artifacts docker images delete "$repo@$digest" --delete-tags --quiet
-            deleted=$((deleted + 1))
+          for pass in indexes manifests; do
+            if [ "$pass" = indexes ]; then filter='select(.metadata.mediaType | test("index|list"))'
+            else filter='select(.metadata.mediaType | test("index|list") | not)'; fi
+            for digest in $(gcloud artifacts docker images list "$repo" --format json | jq -r ".[] | $filter | .version"); do
+              case " $keep " in *" $digest "*) continue ;; esac
+              gcloud artifacts docker images delete "$repo@$digest" --delete-tags --quiet
+              deleted=$((deleted + 1))
+            done
           done
           # A warning, not a failure: the deploy already succeeded, and the reported size lags a
           # delete until unreferenced layers are cleaned up (about a day). Two days in a row over
