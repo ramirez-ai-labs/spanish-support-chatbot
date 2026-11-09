@@ -565,6 +565,9 @@ calculator.
   changes dependencies shares less: one package layer adds up to 100 MB, and changing all three
   goes over the limit, at about 560 MB, until the old image is pruned. Without this limit, paying
   for the storage would be simpler than keeping these layers identical.
+  - Firestore's client changed only the last package layer: 59.7 MB compressed, so the live image
+    and its rollback need about 410 MB together while their package layers differ. gRPC was
+    already in the image, for the trace exporter.
 - **At scale, the model dominates.** At the 50k-conversations-a-day target (6M questions a month),
   with ~1,500 input and ~200 output tokens a question at Flash-Lite's list price ($0.30 / $2.50 per
   1M, `model_prices`), the model costs about **$2,700 + $3,000 ≈ $5,700 a month**. Retrieval, managed

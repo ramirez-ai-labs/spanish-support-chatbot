@@ -26,6 +26,7 @@ dependencies = [
 gcp = [
     "opentelemetry-exporter-gcp-trace>=1.15.0",
     "google-auth[requests]>=2.62", # the runtime account's token for Identity Platform (#72)
+    "google-cloud-firestore>=2.34", # sessions (ADR 0008); gRPC already comes with the trace exporter
 ]
 
 [dependency-groups]
