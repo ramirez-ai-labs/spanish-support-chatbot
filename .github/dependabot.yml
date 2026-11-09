@@ -11,6 +11,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # CodeQL's init and analyze steps must run the same version, or the analyze step fails.
+      codeql:
+        patterns: ["github/codeql-action*"]
   - package-ecosystem: docker
     directory: /
     schedule:
