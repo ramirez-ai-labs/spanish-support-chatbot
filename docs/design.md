@@ -99,7 +99,7 @@ flowchart LR
     subgraph gcp["Google Cloud project"]
         run["Cloud Run API, as chatbot-run<br/>/v1/chat, /v1/markets, /v1/sign-in-link<br/>e5 embedder and Presidio in the container"]
         idp["Identity Platform<br/>email-link sign-in"]
-        secrets["Secret Manager<br/>Gemini key, Turnstile secret,<br/>usage_writer and app_gcp URLs"]
+        secrets["Secret Manager<br/>Gemini key, Turnstile secret,<br/>session key, API role URLs"]
         obs["Cloud Trace and Logging"]
     end
 
@@ -493,7 +493,7 @@ The full procedure and the security test layers are in [BOOTSTRAP.md](../infra/B
 | --- | --- | --- |
 | Cloud Run (request-based) | 2M requests, 180k vCPU-s, 360k GiB-s a month | Scale to zero, max 1 instance |
 | Artifact Registry | 0.5 GB | The live image and one rollback, sharing their large layers; each deploy prunes the rest |
-| Secret Manager | 6 versions, 10k accesses a month | 1 version |
+| Secret Manager | 6 versions, 10k accesses a month, per billing account | 6 versions, the whole allowance: Neon's connection strings share three by who reads them ([ADR 0006](adr/0006-neon-outside-terraform.md)), and a new secret must fit in an existing one |
 | Firestore (Standard edition) | 1 GiB, and 50k reads, 20k writes and 20k deletes a day, for the project's first database. No free usage for TTL deletes, backups or point-in-time recovery, so all three stay off | The sessions database; no data until the `SessionStore` slice |
 | Gemini (AI Studio) | Free tier, key in a project with **no billing** | It returns 429 at the limit instead of billing |
 | Neon Postgres + pgvector | 0.5 GB storage, 100 CU-hours a month per project; compute suspends at the limit instead of billing | Usage rows and 84 knowledge chunks (a few MB); scales to zero after 5 minutes idle |

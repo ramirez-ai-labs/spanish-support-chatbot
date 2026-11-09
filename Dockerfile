@@ -52,10 +52,12 @@ SPLIT
 RUN sh /split-layers.sh
 
 FROM python:3.12-slim
-# CVE-2026-109518: the base image still has apt 3.0.3. Remove this once it ships 3.0.4 or later.
+# The base image lags Debian's security fixes. Remove each package once the base image ships it:
+# - CVE-2026-109518: apt 3.0.3; fixed in 3.0.4.
+# - CVE-2026-85091, CVE-2026-76844: zlib1g 1:1.3.dfsg+really1.3.1-1+b1; fixed in -1+deb13u1.
 # About 2 MB compressed, and it differs from build to build, so each stored image keeps its own copy.
 RUN apt-get update -qq \
-    && apt-get install -y -qq --only-upgrade apt libapt-pkg7.0 \
+    && apt-get install -y -qq --only-upgrade apt libapt-pkg7.0 zlib1g \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /var/log/apt/* /var/log/dpkg.log /var/log/alternatives.log
 RUN useradd --create-home --uid 10001 app
 WORKDIR /app
