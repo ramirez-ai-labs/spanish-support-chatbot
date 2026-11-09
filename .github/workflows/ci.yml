@@ -20,6 +20,10 @@ jobs:
     env:
       # Tests and CI never call Gemini or need a key.
       LLM_PROVIDER: mock
+      # Every `uv run` uses uv.lock as it is. Without this, each one rechecks the lock against
+      # pyproject.toml, which fetches the spaCy model's metadata from its GitHub release and fails on
+      # GitHub's 504s even after the offline sync below. The lock check step replaces that recheck.
+      UV_FROZEN: "1"
     services:
       # Throwaway Postgres with Neon's pgvector, for the chunk store's contract tests.
       db:
@@ -52,6 +56,10 @@ jobs:
       - run: uv sync --frozen --all-extras --offline || uv sync --frozen --all-extras
         env:
           UV_HTTP_RETRIES: "8" # default 3; GitHub's release downloads time out under load
+      # Offline when the lock is current, so no network is needed; online only to explain a mismatch.
+      # The image also installs with --frozen, so a stale lock would otherwise ship unnoticed.
+      - name: Lock file matches pyproject.toml
+        run: uv lock --check --offline || uv lock --check
       - name: Chat page scripts parse
         run: for f in ui/*.js; do node --check "$f"; done
       - name: Lint
