@@ -186,23 +186,39 @@ class _MessageNumbering:
         return self._numbers[key]
 
 
-class Redactor:
-    def __init__(self, detector: PIIDetector) -> None:
-        self._detector = detector
+@dataclass(frozen=True)
+class Found:
+    """What detection chose to remove from a message, before any placeholder is numbered. Kept
+    apart so the slow part (the NER) can run while the session that numbers them loads."""
 
-    def redact(self, text: str, numbering: Numbering | None = None) -> Redacted:
-        """Raises `core.pii.DetectorUnavailable` if the detector fails: the caller fails closed."""
-        text = plain(text)
-        spans = _chosen(self._detector.detect(text), text)
+    text: str  # the plain text the spans point into
+    spans: tuple[PIISpan, ...]
+
+    def redact(self, numbering: Numbering | None = None) -> Redacted:
+        """The text with each span replaced by its placeholder; numbered per message by default."""
         numbering = numbering if numbering is not None else _MessageNumbering()
-        pieces, cursor = [], 0
-        for span in spans:
+        text, pieces, cursor = self.text, [], 0
+        for span in self.spans:
             number = numbering.number(span.entity_type, _normalized(text[span.start : span.end]))
             pieces += [text[cursor : span.start], f"<{span.entity_type}_{number}>"]
             cursor = span.end
         pieces.append(text[cursor:])
-        counts = Counter(span.entity_type for span in spans)
+        counts = Counter(span.entity_type for span in self.spans)
         return Redacted("".join(pieces), dict(counts))
+
+
+class Redactor:
+    def __init__(self, detector: PIIDetector) -> None:
+        self._detector = detector
+
+    def find(self, text: str) -> Found:
+        """Raises `core.pii.DetectorUnavailable` if the detector fails: the caller fails closed."""
+        text = plain(text)
+        return Found(text, tuple(_chosen(self._detector.detect(text), text)))
+
+    def redact(self, text: str, numbering: Numbering | None = None) -> Redacted:
+        """`find`, then `Found.redact`. Raises as `find` does."""
+        return self.find(text).redact(numbering)
 
     def output_scanner(self) -> "OutputScanner":
         """A scanner for one answer, with the detector's pattern recognizers only."""

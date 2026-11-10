@@ -17,6 +17,7 @@ from adapters.shared.mock_llm import MOCK_BLOCK, MockLLM
 from core.chat import SYSTEM_PROMPT
 from core.ports import LLMProvider
 from core.safety import ContentBlocked
+from core.sessions import Turn
 from core.usage import TokenUsage
 
 QUESTION = "¿Cómo bloqueo mi tarjeta?"
@@ -85,6 +86,28 @@ def test_stopping_early_closes_cleanly(llm: LLMProvider) -> None:
         return first
 
     assert isinstance(run(first_chunk_then_stop()), str)
+
+
+def test_takes_earlier_turns_as_history(llm: LLMProvider) -> None:
+    history = [Turn("¿Cómo abro una cuenta?", "Desde la app, en «Abrir cuenta».")]
+    alone, with_history = TokenUsage(), TokenUsage()
+
+    run(collect(llm.stream(SYSTEM_PROMPT, QUESTION, usage=alone)))
+    chunks = run(collect(llm.stream(SYSTEM_PROMPT, QUESTION, usage=with_history, history=history)))
+
+    assert "".join(chunks).strip()
+    assert with_history.input_tokens > alone.input_tokens  # the earlier turn was sent
+
+
+@pytest.mark.integration
+def test_gemini_answers_from_the_history_it_was_given() -> None:
+    # A fact only the earlier turn holds, so the answer shows the turns arrived as a conversation.
+    history = [Turn("Para esta conversación, mi color favorito es el verde.", "Entendido.")]
+    answer = "".join(
+        run(collect(gemini().stream(SYSTEM_PROMPT, "¿Cuál es mi color favorito?", history=history)))
+    )
+
+    assert "verde" in answer.lower()
 
 
 def test_reports_token_counts(llm: LLMProvider) -> None:

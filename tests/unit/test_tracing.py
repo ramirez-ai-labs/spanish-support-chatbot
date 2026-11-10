@@ -83,7 +83,7 @@ def test_provider_error_marks_both_spans_by_type_only() -> None:
         model = "fake"
 
         async def stream(
-            self, system: str, user_message: str, usage: object = None
+            self, system: str, user_message: str, usage: object = None, history: object = ()
         ) -> AsyncIterator[str]:
             raise RuntimeError(secret)
             yield ""
@@ -259,3 +259,30 @@ def test_sign_in_link_is_one_span_without_the_address() -> None:
     assert span.attributes["chat.outcome"] == "sent"
     assert span.attributes["http.response.status_code"] == 202
     assert "ana.prueba" not in str(span.attributes)
+
+
+def test_the_session_load_and_save_are_spans_of_the_request_without_its_id() -> None:
+    from adapters.shared.memory_sessions import MemorySessionStore
+    from core.sessions import Sessions
+
+    sessions = Sessions(MemorySessionStore(), b"k" * 32)
+    client = TestClient(create_app(llm=MockLLM(), flush_traces=FLUSH, sessions=sessions))
+    response = client.post(
+        "/v1/chat",
+        json={"message": "hola", "market": "US"},
+        headers={"traceparent": f"00-{TRACE_ID}-{PARENT_SPAN_ID}-01"},
+    )
+    session_id = json.loads(response.text.split("data: ", 1)[1].split("\n", 1)[0])["session_id"]
+
+    spans = spans_by_name()
+    request = spans["POST /v1/chat"]
+    for name in ("chat.session_load", "chat.session_save"):
+        span = spans[name]
+        # The load runs in another thread, beside the NER, and still joins the request's trace.
+        assert f"{span.context.trace_id:032x}" == TRACE_ID
+        assert span.parent is not None
+    load = spans["chat.session_load"]
+    assert load.parent is not None and load.parent.span_id == request.context.span_id
+    assert load.attributes is not None and load.attributes["session.new"] is True
+    for span in spans.values():
+        assert session_id not in json.dumps(dict(span.attributes or {}))

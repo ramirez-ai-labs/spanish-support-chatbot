@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-03
 - **Amended:** 2026-11-05: action tools are offered to every signed-in caller, so step-up can be reached; expired sessions are refused on read and swept on create, and only a session's exact owner may use it; the placeholder HMAC's key comes from a master key in the secret store
+- **Amended:** 2026-11-09: history goes to the model as separate turns; someone else's session starts a new one instead of being an error; a store that can't be reached costs the history, not the chat
 - **Milestone:** M3 (#51)
 
 ## Context
@@ -208,7 +209,15 @@ Placeholders, repeated questions and pending actions all need them.
     starts a new session: continuing an anonymous one would let whoever knew its ID write into a
     customer's history, which reaches the model. The cost is that the model forgets what was asked
     before signing in.
-- **Contents:** only redacted text. The model gets the last 6 turns.
+- **Contents:** only redacted text. The model gets the last 6 turns, each as the provider's own
+  user and model messages. They're never pasted into the question, so text a customer types
+  can't pose as an earlier answer or as the sources.
+- **Someone else's session isn't an error.** A session ID that's unknown, expired, malformed or
+  another owner's starts a new conversation, with nothing said about why. So signing in or out
+  mid-conversation just starts afresh, and the page also forgets the ID when it signs out.
+- **Memory is a convenience, redaction isn't.** If the store can't be reached, the answer goes
+  on without history and the turn isn't saved. A failed redaction still refuses the message.
+  Only a completed answer is saved: a blocked, failed or abandoned one never becomes a turn.
 - **Saves are version-checked.** A save applies only if the session is unchanged since it was
   loaded, so a stale request can't overwrite a newer turn. Firestore, Cosmos DB and DynamoDB can
   all enforce this.
