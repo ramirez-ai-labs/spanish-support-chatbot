@@ -37,7 +37,7 @@ from core.ports import LLMProvider, UsageSink
 from core.redaction import Found, Redacted, Redactor, summary, unredacted
 from core.retrieval import RetrievedChunk, Retriever
 from core.safety import ContentBlocked
-from core.sessions import Session, SessionConflict, SessionRefused, Sessions
+from core.sessions import Session, SessionConflict, SessionRefused, Sessions, Turn
 from core.usage import LLMUsage, Outcome, TokenUsage
 
 tracer = trace.get_tracer(__name__)
@@ -62,6 +62,11 @@ SYSTEM_PROMPT = (
 # What the prompt is made of, recorded by name (never content) with each call.
 PROMPT_PARTS = ("system", "user")
 PROMPT_PARTS_WITH_CONTEXT = ("system", "context", "user")
+
+# A message this short, after an earlier turn, is read as a follow-up («¿Y cuánto tarda?»): it's
+# retrieved together with the previous question, which names the topic. No model call decides
+# it, and M4's eval set measures whether the cut-off is right.
+FOLLOW_UP_CHARS = 60
 
 # Session loads run here, beside the NER. A load is one short read, so a few threads keep up with
 # the 20 requests an instance serves at once.
@@ -97,6 +102,14 @@ class Prepared:
 
     redacted: Redacted
     session: Session | None = None  # None: no sessions, or the store couldn't be reached
+
+
+def retrieval_query(message: str, history: Sequence[Turn]) -> str:
+    """What retrieval embeds: the message, or for a short follow-up the previous question too.
+    Both are redacted. The model still gets the message alone, after its sources."""
+    if history and len(message) <= FOLLOW_UP_CHARS:
+        return f"{history[-1].question}\n{message}"
+    return message
 
 
 def prompt_parts(history: bool, context: bool) -> tuple[str, ...]:
@@ -156,19 +169,26 @@ class ChatService:
         found = self._find(text)
         return found.redact() if found is not None else unredacted(text)
 
-    def prepare(self, text: str, caller: Caller, session_id: str | None = None) -> Prepared:
+    def prepare(
+        self,
+        text: str,
+        caller: Caller,
+        session_id: str | None = None,
+        market: str | None = None,
+    ) -> Prepared:
         """The message redacted, with the caller's conversation when sessions are on.
 
         The session loads in another thread while the NER runs, then numbers the placeholders. A
         session ID that's unknown, expired or malformed starts a new conversation, and so does one
         that belongs to someone else: signing in or out mid-conversation starts afresh, as ADR 0008
-        says, and nobody learns whose it was. Raises as `redact` does; a store that can't be
-        reached only costs the history. CPU-bound and blocking: call it off the event loop.
+        says, and nobody learns whose it was. So does one about another market. Raises as `redact`
+        does; a store that can't be reached only costs the history. CPU-bound and blocking: call it
+        off the event loop.
         """
         if self._sessions is None:
             return Prepared(self.redact(text))
         loading = _SESSION_LOADS.submit(
-            self._open_session, caller, session_id, otel_context.get_current()
+            self._open_session, caller, session_id, market, otel_context.get_current()
         )
         found = self._find(text)  # if it raises, the load finishes on its own and is dropped
         session = loading.result()
@@ -197,7 +217,11 @@ class ChatService:
             return found
 
     def _open_session(
-        self, caller: Caller, session_id: str | None, parent: otel_context.Context
+        self,
+        caller: Caller,
+        session_id: str | None,
+        market: str | None,
+        parent: otel_context.Context,
     ) -> Session | None:
         assert self._sessions is not None
         attached = otel_context.attach(parent)  # this thread's span joins the request's trace
@@ -207,9 +231,9 @@ class ChatService:
             ) as span:
                 refused = False
                 try:
-                    session = self._sessions.open(caller, session_id)
+                    session = self._sessions.open(caller, session_id, market)
                 except SessionRefused:
-                    session, refused = self._sessions.start(caller), True
+                    session, refused = self._sessions.start(caller, market), True
                     logger.info("session_refused")  # someone else's: a new one, and no detail
                 except Exception as exc:  # SessionUnavailable, or anything else from the store
                     cause = type(exc.__cause__ or exc).__name__
@@ -258,7 +282,8 @@ class ChatService:
         retrieved: list[RetrievedChunk] | None = None
         prompt = message
         if market is not None and self._retriever is not None:
-            retrieved = await self._retrieve(message, market)
+            query = retrieval_query(message, history)
+            retrieved = await self._retrieve(query, market, follow_up=query != message)
             prompt = user_message(message, retrieved)
             yield sources_for(retrieved)
         parts = prompt_parts(history=bool(history), context=retrieved is not None)
@@ -348,19 +373,22 @@ class ChatService:
             session.add_turn(redacted, "".join(answer))
             await asyncio.to_thread(self._save, session)
 
-    async def _retrieve(self, message: str, market: str) -> list[RetrievedChunk]:
+    async def _retrieve(
+        self, query: str, market: str, follow_up: bool = False
+    ) -> list[RetrievedChunk]:
         assert self._retriever is not None
         # record_exception=False: a store error can quote the query.
         with tracer.start_as_current_span(
             "chat.retrieval", record_exception=False, set_status_on_exception=False
         ) as span:
             span.set_attribute("chat.market", market)
+            span.set_attribute("retrieval.follow_up", follow_up)
             span.set_attribute("retrieval.k", self._retriever.k)
             span.set_attribute("retrieval.min_score", self._retriever.min_score)
             try:
                 # Embedding is CPU work and the store call blocks: off the event loop, so other
                 # streams on this instance keep flowing.
-                chunks = await asyncio.to_thread(self._retriever.retrieve, message, market)
+                chunks = await asyncio.to_thread(self._retriever.retrieve, query, market)
             except Exception as exc:
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", type(exc).__name__)

@@ -56,6 +56,7 @@ def session(session_id: str = "a" * 32, expires_at: float = NOW + 100) -> Sessio
         placeholders={"f" * 64: 2},
         counters={"PERSON": 2},
         turns=[Turn("¿Cómo bloqueo mi tarjeta, <PERSON_2>?", "Desde la app, en «Tarjetas».")],
+        market="MX",
     )
 
 

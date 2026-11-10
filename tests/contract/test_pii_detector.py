@@ -288,3 +288,18 @@ def test_an_answer_streamed_one_character_at_a_time_leaks_nothing(detector: PIID
     assert "<PERSON_1>" not in shown
     assert shown.startswith("Listo: la tarjeta [dato protegido] quedó bloqueada")
     assert shown.endswith("¿Algo más, [dato protegido]?")
+
+
+def test_presidio_loads_without_a_warning_per_skipped_recognizer(
+    offline: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Presidio's own: about 20 lines on every cold start, for other languages' recognizers.
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="presidio-analyzer"):
+        PresidioDetector()
+        # Back to warnings once loaded, so detection still warns. Checked inside the block, since
+        # leaving it puts back the level pytest found.
+        assert logging.getLogger("presidio-analyzer").level == logging.WARNING
+
+    assert "Recognizer not added to registry" not in caplog.text

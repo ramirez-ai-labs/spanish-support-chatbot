@@ -293,3 +293,41 @@ def test_a_failed_save_reaches_the_caller() -> None:
     service = sessions(Down())
     with pytest.raises(SessionUnavailable):
         service.save(service.open(ANA, None))
+
+
+# --- market (a conversation is about one market's policy) -----------------------------------------
+
+
+def test_a_conversation_continues_in_its_own_market() -> None:
+    store = MemorySessionStore()
+    first = sessions(store).open(ANA, None, "MX")
+    sessions(store).save(first)
+
+    again = sessions(store).open(ANA, first.id, "MX")
+
+    assert again.id == first.id and again.market == "MX"
+
+
+def test_another_market_starts_a_new_conversation(caplog: pytest.LogCaptureFixture) -> None:
+    store = MemorySessionStore()
+    mexico = sessions(store).open(ANA, None, "MX")
+    sessions(store).save(mexico)
+
+    with caplog.at_level("INFO"):
+        us = sessions(store).open(ANA, mexico.id, "US")
+
+    assert us.id != mexico.id and us.market == "US" and us.version == 0
+    assert "session_market_changed" in caplog.text and "MX" not in caplog.text
+
+
+def test_a_session_stored_before_markets_takes_the_current_one() -> None:
+    store = MemorySessionStore()
+    old = sessions(store).open(ANA, None)
+    sessions(store).save(old)
+    record = json.loads(store._records[old.id])
+    del record["market"]  # as Firestore holds the sessions saved before this change
+    store._records[old.id] = json.dumps(record)
+
+    opened = sessions(store).open(ANA, old.id, "US")
+
+    assert opened.id == old.id and opened.market == "US"

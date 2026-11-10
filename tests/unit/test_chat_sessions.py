@@ -264,3 +264,73 @@ def test_without_sessions_nothing_changes() -> None:
     assert prepared.session is None
     assert prepared.redacted.text == "Mi correo es <EMAIL_ADDRESS_1>."
     assert llm.calls == [("Mi correo es <EMAIL_ADDRESS_1>.", ())]
+
+
+class RecordingRetriever:
+    """Stands in for `Retriever`: records each query and finds nothing."""
+
+    k, min_score = 4, 0.0
+
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def retrieve(self, query: str, market: str) -> list[object]:
+        self.queries.append(query)
+        return []
+
+
+def retrieving_service() -> tuple[ChatService, RecordingRetriever, RecordingLLM]:
+    llm, retriever = RecordingLLM(), RecordingRetriever()
+    chat = ChatService(
+        llm,
+        retriever=retriever,  # type: ignore[arg-type]
+        redactor=Redactor(EmailDetector()),
+        sessions=Sessions(MemorySessionStore(), KEY),
+    )
+    return chat, retriever, llm
+
+
+def market_turn(
+    chat: ChatService, message: str, market: str, session_id: str | None = None
+) -> Prepared:
+    prepared = chat.prepare(message, ANONYMOUS, session_id, market)
+
+    async def consume() -> None:
+        async for _ in chat.reply(prepared.redacted, market, prepared.session):
+            pass
+
+    asyncio.run(consume())
+    return prepared
+
+
+def test_a_short_follow_up_is_retrieved_with_the_question_before_it() -> None:
+    chat, retriever, llm = retrieving_service()
+    first = market_turn(chat, "¿Cómo abro una cuenta de ahorros?", "MX")
+    market_turn(chat, "¿Y cuánto tarda?", "MX", session_id(first))
+
+    assert retriever.queries == [
+        "¿Cómo abro una cuenta de ahorros?",
+        "¿Cómo abro una cuenta de ahorros?\n¿Y cuánto tarda?",
+    ]
+    assert llm.calls[-1][0].endswith(
+        "Pregunta del cliente: ¿Y cuánto tarda?"
+    )  # the model gets it alone
+
+
+def test_a_longer_question_is_retrieved_on_its_own() -> None:
+    chat, retriever, _ = retrieving_service()
+    first = market_turn(chat, "¿Cómo abro una cuenta de ahorros?", "MX")
+    question = "¿Qué necesito para enviar dinero a El Salvador desde mi cuenta de cheques?"
+    market_turn(chat, question, "MX", session_id(first))
+
+    assert retriever.queries[-1] == question
+
+
+def test_changing_market_starts_a_new_conversation() -> None:
+    chat, retriever, llm = retrieving_service()
+    mexico = market_turn(chat, "¿Cuánto cuesta la tarjeta?", "MX")
+    us = market_turn(chat, "¿Y aquí?", "US", session_id(mexico))
+
+    assert session_id(us) != session_id(mexico)
+    assert llm.calls[-1][1] == ()  # no Mexican answer beside US sources
+    assert retriever.queries[-1] == "¿Y aquí?"  # and no Mexican question in the US query
