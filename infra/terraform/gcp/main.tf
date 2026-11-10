@@ -375,6 +375,22 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
       env {
+        # Conversation sessions in this project's (default) Firestore database (ADR 0008)
+        name  = "SESSION_STORE"
+        value = "firestore"
+      }
+      env {
+        # The master key for placeholder numbering. Its value comes from
+        # infra/scripts/session-hmac-key.sh, never from Terraform.
+        name = "SESSION_HMAC_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.session_hmac_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
         name = "GEMINI_API_KEY"
         value_source {
           secret_key_ref {
@@ -399,7 +415,9 @@ resource "google_cloud_run_v2_service" "api" {
     google_project_service.cloudtrace,
     google_secret_manager_secret_iam_member.run_gemini_api_key,
     google_secret_manager_secret_iam_member.run_neon_api_urls,
+    google_secret_manager_secret_iam_member.run_session_hmac_key,
     google_secret_manager_secret_iam_member.run_turnstile_secret,
+    google_project_iam_member.run, # roles/datastore.user, for the sessions
   ]
 }
 

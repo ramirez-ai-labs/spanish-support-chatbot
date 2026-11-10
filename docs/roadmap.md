@@ -183,12 +183,12 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 
 - [x] Content safety: Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content; a block becomes a polite refusal and is recorded by category, never with the text. Violent requests are refused by the model, not the filter: an input classifier is decided with the M4 safety set (#65)
 - [x] Presidio with a Spanish model and ID patterns per market (US SSN, Mexico CURP, Colombia cédula, El Salvador DUI, Peru DNI), added as markets are added; the model is baked into the image at build time (#51). Live: `es_core_news_md`, US SSN and ITIN, Mexico's CURP and CLABE, El Salvador's DUI and Spain's NIF and NIE, each of ours checked by its check digit; Colombia and Peru come with their markets
-- [ ] PII handling: redact right after the token check; no request-body logging and no message text on spans before redaction; consistent placeholders for names (`<PERSON_1>`); scan model output too. Live and failing closed on both sides: the message before anything reads it, and the answer as it streams (pattern recognizers, a 64-character hold-back, «[dato protegido]»). Placeholders are numbered per message until sessions number them per conversation
+- [x] PII handling: redact right after the token check; no request-body logging and no message text on spans before redaction; consistent placeholders for names (`<PERSON_1>`); scan model output too. Live and failing closed on both sides: the message before anything reads it, and the answer as it streams (pattern recognizers, a 64-character hold-back, «[dato protegido]»). Placeholders are numbered per conversation, by HMAC under a key derived from the secret store's master key
 - [ ] Tools return masked data only (e.g., card ending 4417), never full numbers
 - [x] Log redaction events by type, never the value: a `chat.redaction` span and one `pii_redacted` log line, with types and counts only
 - [ ] Agent controller: step cap of 5, per-conversation token cap, tool allowlist, confirmation before actions
 - [ ] Fast path: no-tool questions get one model call and stream; the tool loop runs only when needed; no separate router model call
-- [ ] Parallel pre-work after the token check: redaction and session load together (`asyncio.gather`), then the query embedding, from the redacted text ([ADR 0008](adr/0008-guardrails-tools-access.md): its vector goes to Neon)
+- [x] Parallel pre-work after the token check: redaction and session load together (the load runs in a thread beside the NER), then the query embedding, from the redacted text ([ADR 0008](adr/0008-guardrails-tools-access.md): its vector goes to Neon)
 - [ ] Lean prompts: 3 to 5 chunks, trimmed history, compact system prompt kept identical at the start for prompt caching; Gemini thinking off on the hot path
 - [ ] Mock tools: `check_card_status`, `block_card`, `open_ticket`
 - [ ] Tiered access: anonymous = policy answers; signed in = read-only tools; step-up = action tools
@@ -197,7 +197,7 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 - [ ] Staff role for the handoff queue via Firebase custom claims
 - [ ] Audit log of every action: who, what, when, decision
 - [ ] Human-handoff rule: low retrieval score, repeated question or frustration
-- [ ] Firestore sessions keyed to `sub`, with random IDs and a 30-day TTL. The database comes first, in Terraform. Firestore's TTL policies have no free usage, so an expired session is refused on read, and saving a new session deletes up to 5 expired ones ([ADR 0008](adr/0008-guardrails-tools-access.md)). The port, its contract suite and the memory adapter are in; the Firestore adapter and the API wiring come next
+- [x] Firestore sessions keyed to `sub`, with random IDs and a 30-day TTL. The database comes first, in Terraform. Firestore's TTL policies have no free usage, so an expired session is refused on read, and saving a new session deletes up to 5 expired ones ([ADR 0008](adr/0008-guardrails-tools-access.md)). Live: the port and its contract suite, the memory and Firestore adapters (#145), and the API and page, with history sent as separate turns
 - [ ] Last: MFA on GitHub and Google (the `prod` approval is only as safe as the GitHub login), then Neon and Cloudflare (#36). Moved from M2, and from the start of M3 to its end, since redaction, sessions and the read-only tool add no new power to the owner's login. It still gates the action tools: `block_card` and `open_ticket` don't deploy until it's done. Azure and AWS get MFA in M7 and M8
 
 ### M4 · Evaluation quality gate (Dec 14–20)

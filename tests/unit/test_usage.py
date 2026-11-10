@@ -65,7 +65,11 @@ def test_a_provider_error_is_recorded_and_still_raised() -> None:
         model = "fake"
 
         async def stream(
-            self, system: str, user_message: str, usage: TokenUsage | None = None
+            self,
+            system: str,
+            user_message: str,
+            usage: TokenUsage | None = None,
+            history: object = (),
         ) -> AsyncIterator[str]:
             raise RuntimeError("provider detail")
             yield ""

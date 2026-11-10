@@ -55,7 +55,7 @@ class RecordingLLM:
         self.seen: list[str] = []
 
     async def stream(
-        self, system: str, user_message: str, usage: object = None
+        self, system: str, user_message: str, usage: object = None, history: object = ()
     ) -> AsyncIterator[str]:
         self.seen += [system, user_message]
         yield "ok"

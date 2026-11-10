@@ -296,9 +296,10 @@ jobs:
             exit 1
           fi
           # The same real question as a US and a Mexican customer, as the deploy probe (which skips
-          # the bot check): each stream starts with sources from its own market (or all) only,
-          # carries text and ends with "done". The M2 demo, checked on every deploy. The check below
-          # is Python in single quotes: no apostrophes in it, or the shell ends the string early.
+          # the bot check): each stream starts with its session, then sources from its own market
+          # (or all) only, carries text and ends with "done". The M2 demo, checked on every deploy.
+          # The checks below are Python in single quotes: no apostrophes in them, or the shell ends
+          # the string early.
           for m in US MX; do
             reply="$(curl -sN --max-time 90 -H 'Content-Type: application/json' -H "X-Deploy-Probe: $PROBE" \
               -d "{\"message\": \"¿Qué documentos necesito para abrir una cuenta?\", \"market\": \"$m\"}" "$url/v1/chat")"
@@ -317,7 +318,10 @@ jobs:
             if ! python3 -c '
           import json, sys
           market, body = sys.argv[1], sys.stdin.read()
-          first = body.split("\n\n")[0].splitlines()
+          blocks = body.split("\n\n")
+          if blocks[0].startswith("event: session"):
+              blocks = blocks[1:]  # the conversation comes first, then its sources
+          first = blocks[0].splitlines()
           assert first[0] == "event: sources", "no sources event first"
           sources = json.loads(first[1].removeprefix("data: "))["sources"]
           assert sources, "no sources"
@@ -327,7 +331,25 @@ jobs:
               exit 1
             fi
           done
-          echo "Smoke test passed: /health ok, forged token, missing bot checks (chat, sign-in link) and an unknown market refused, and the same question as US and MX answered with each market's own sources" >> "$GITHUB_STEP_SUMMARY"
+          # Memory, against the real Firestore: a follow-up sent with the last answer's session ID
+          # continues that conversation. The first turn never reads the store, so only this shows
+          # that it was saved. The ID stays in the variable: never printed.
+          sid="$(python3 -c '
+          import json, sys
+          head = sys.stdin.read().split("\n\n")[0].splitlines()
+          is_session = head[0] == "event: session"
+          print(json.loads(head[1].removeprefix("data: "))["session_id"] if is_session else "")' <<<"$reply")"
+          if [ -z "$sid" ]; then
+            echo "::error::Chat sent no session event: SESSION_STORE is off, or the API is older than this commit."
+            exit 1
+          fi
+          again="$(curl -sN --max-time 90 -H 'Content-Type: application/json' -H "X-Deploy-Probe: $PROBE" \
+            -d "{\"message\": \"¿Y cuánto tarda?\", \"market\": \"MX\", \"session_id\": \"$sid\"}" "$url/v1/chat")"
+          if ! grep -qF "\"session_id\": \"$sid\"" <<<"$again" || ! grep -q '^event: done' <<<"$again"; then
+            echo "::error::The follow-up started a new conversation, or didn't finish: the first turn wasn't saved. The session_save_error or session_unavailable line in the Cloud Run logs has the error type."
+            exit 1
+          fi
+          echo "Smoke test passed: /health ok, forged token, missing bot checks (chat, sign-in link) and an unknown market refused, the same question as US and MX answered with each market's own sources, and a follow-up continued its conversation from Firestore" >> "$GITHUB_STEP_SUMMARY"
       - name: Prune old API images (keep the live one and the rollback; the registry is free to 0.5 GB)
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}

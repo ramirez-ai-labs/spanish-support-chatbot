@@ -1,11 +1,12 @@
 """Gemini adapter for the LLMProvider port (google-genai SDK, free-tier AI Studio key)."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 
 from google import genai
 from google.genai import types
 
 from core.safety import ContentBlocked
+from core.sessions import Turn
 from core.usage import TokenUsage
 
 # Strictest threshold on every category: block anything rated LOW or above. Gemini has no separate
@@ -45,8 +46,22 @@ class GeminiLLM:
         self.model = model
 
     async def stream(
-        self, system: str, user_message: str, usage: TokenUsage | None = None
+        self,
+        system: str,
+        user_message: str,
+        usage: TokenUsage | None = None,
+        history: Sequence[Turn] = (),
     ) -> AsyncIterator[str]:
+        # Each earlier turn as Gemini's own user and model messages, then this question.
+        contents = [
+            content
+            for turn in history
+            for content in (
+                types.Content(role="user", parts=[types.Part(text=turn.question)]),
+                types.Content(role="model", parts=[types.Part(text=turn.answer)]),
+            )
+        ]
+        contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
         config = types.GenerateContentConfig(
             system_instruction=system,
             # Thinking as low as the model allows on the hot path: it adds latency and tokens to
@@ -55,7 +70,7 @@ class GeminiLLM:
             safety_settings=SAFETY_SETTINGS,
         )
         chunks = await self._client.aio.models.generate_content_stream(
-            model=self.model, contents=user_message, config=config
+            model=self.model, contents=contents, config=config
         )
         async for chunk in chunks:
             # Counts arrive on the stream's chunks; the last one has the totals for the call.

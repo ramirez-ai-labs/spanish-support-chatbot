@@ -10,6 +10,10 @@
 // Sign-in is email-link (passwordless) through Google's Identity Platform REST API, with no SDK
 // script: the page asks for a link, the email brings the user back here with a one-time code, and
 // the page exchanges it for an ID token. Tokens live in sessionStorage, so closing the tab signs out.
+//
+// The conversation's ID (from the API's `session` event) lives only in this page's memory, so a
+// reload starts a new conversation, as the empty page suggests. Signing out forgets it too: the
+// API would start a new conversation anyway, since a session belongs to whoever started it.
 "use strict";
 
 const config = window.CHAT_CONFIG;
@@ -40,6 +44,7 @@ const ERRORS = {
     "No puedo ayudar con ese tipo de contenido. Puedo ayudarte con tus tarjetas, cuentas, pagos y otros temas del banco.",
 };
 
+let conversationId = null; // the API's session ID for this conversation, once it sends one
 let widgetId = null;
 let pendingToken = null; // { resolve } while a Turnstile challenge runs for the next send
 let tokenQueue = Promise.resolve(); // one challenge at a time: chat and sign-in share the widget
@@ -178,6 +183,7 @@ function saveSession(session) {
 
 function signOut(message = "") {
   sessionStorage.removeItem(SESSION);
+  conversationId = null; // the next message starts a conversation of the anonymous visitor's own
   renderAccount(message);
 }
 
@@ -378,7 +384,7 @@ async function send(message) {
     const response = await fetch(`${config.apiUrl}/v1/chat`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ message, market }),
+      body: JSON.stringify({ message, market, session_id: conversationId }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -397,8 +403,9 @@ async function send(message) {
   }
 }
 
-// Parses the API's server-sent events: `event: sources` first, then `data: {"delta": "..."}`, then
-// `event: done` or `event: error` with `data: {"error": "..."}`. Returns when the first word arrived.
+// Parses the API's server-sent events: `event: session` and `event: sources` first, then
+// `data: {"delta": "..."}`, then `event: done` or `event: error` with `data: {"error": "..."}`.
+// Returns when the first word arrived.
 async function readStream(response, reply) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -421,6 +428,7 @@ async function readStream(response, reply) {
       }
       const payload = data ? JSON.parse(data) : {};
       if (event === "error") throw new Error(ERRORS[payload.error] || "Error.");
+      if (event === "session" && payload.session_id) conversationId = payload.session_id;
       if (event === "sources") addSources(reply, payload.sources || []);
       if (event === "message" && payload.delta) {
         firstWordAt ??= performance.now();

@@ -21,6 +21,9 @@ services:
       PII_DETECTOR: ${PII_DETECTOR:-presidio}
       KNOWLEDGE_STORE: ${KNOWLEDGE_STORE:-memory}
       RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.82}
+      # Conversations in memory: they last until the container stops. SESSION_STORE=none turns
+      # memory off, as in the tests.
+      SESSION_STORE: ${SESSION_STORE:-memory}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s

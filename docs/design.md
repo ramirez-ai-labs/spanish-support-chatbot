@@ -85,7 +85,8 @@ The per-cloud mapping of every layer is in the [roadmap](roadmap.md#architecture
 ### 3.1 Live system today
 
 Only what is deployed and running, as of `v0.2.0` plus M3's first slices: redaction of the
-message and of the answer is live; sessions and tools are not built yet.
+message and of the answer, and conversation sessions in Firestore, are live; tools are not
+built yet.
 
 ```mermaid
 flowchart LR
@@ -101,6 +102,7 @@ flowchart LR
         idp["Identity Platform<br/>email-link sign-in"]
         secrets["Secret Manager<br/>Gemini key, Turnstile secret,<br/>session key, API role URLs"]
         obs["Cloud Trace and Logging"]
+        firestore["Firestore (default) database<br/>sessions: redacted turns only"]
     end
 
     gh["GitHub Actions: index workflow<br/>as the indexer role"]
@@ -119,6 +121,7 @@ flowchart LR
     run -- "one streamed call" --> gemini
     run -- "INSERT only, usage_writer" --> neon
     run -- "spans and JSON logs" --> obs
+    run -- "load and save the session,<br/>datastore.user" --> firestore
     secrets -. "read at startup" .-> run
 ```
 
@@ -131,7 +134,7 @@ needed to answer, and telemetry gets sizes, timings and reason codes, never cont
 flowchart LR
     subgraph device["Visitor's device: untrusted"]
         page["Chat page"]
-        store[("sessionStorage: ID and refresh tokens<br/>localStorage: email a link was sent to")]
+        store[("sessionStorage: ID and refresh tokens<br/>localStorage: email a link was sent to<br/>memory only: the session ID")]
     end
 
     subgraph api["API trust boundary: Cloud Run"]
@@ -150,15 +153,18 @@ flowchart LR
         chunks[("Neon chunks")]
         neon[("Neon llm_usage")]
         obs[("Cloud Trace and Logging")]
+        sessions[("Firestore sessions")]
     end
 
     page <--> store
-    page -- "message text, market, Turnstile token,<br/>ID token, traceparent" --> checks
+    page -- "message text, market, session ID,<br/>Turnstile token, ID token, traceparent" --> checks
     page -- "email address, Turnstile token" --> checks
     checks -- "Turnstile token only" --> cfv
     checks -- "message text and market only:<br/>the token stops here" --> core
     checks -- "email address only" --> signin
     core -- "query vector, market, k:<br/>no text" --> chunks
+    core <-- "redacted turns, placeholder HMACs,<br/>owner sub: never a raw value" --> sessions
+    core -- "session ID" --> page
     chunks -- "policy chunks" --> core
     core -- "system prompt, policy chunks<br/>and message text" --> gemini
     core -- "sources: title, section, market" --> page
@@ -173,7 +179,8 @@ flowchart LR
 
 | Data | Goes to | Never goes to |
 | --- | --- | --- |
-| Message text | The API, which embeds it in the container, then Gemini | Neon (only its vector goes there), spans, logs, usage rows. It isn't stored: there are no sessions until M3 |
+| Message text | The API, which redacts it, then embeds the redacted text in the container and sends it to Gemini | Neon (only its vector goes there), spans, logs, usage rows. Only the redacted text is stored, as a session turn |
+| Session | Firestore: the last 6 turns as redacted text, an HMAC and number per placeholder value, the owner's `sub` and the expiry. The page holds its ID in memory | Spans, logs, usage rows. Never a raw value or the HMAC's key, which is derived from the secret store's master key and the session ID |
 | Query vector | Neon `chunks`, as the read-only `app_gcp` role, with the market | Logs, spans |
 | Policy chunks | The API, then Gemini after the system prompt; their title, section and market go to the page as sources | Spans (only their count and top score) |
 | ID token | The API, which verifies it and keeps only `sub`, `auth_time` and the tier | The model, logs, spans |
@@ -296,7 +303,7 @@ down by stage.
 | 2 | Identity | JWT validated on **every** call; no token means the anonymous tier | M1 |
 | 2b | Content safety | Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content. A blocked answer becomes a polite Spanish refusal that replaces anything already shown, and is recorded as outcome `blocked` with its categories, never the text. Violent requests are refused by the model itself; an input classifier is decided with the M4 safety set | M1 (live) |
 | 3 | Redaction | Presidio with spaCy `es_core_news_md`, in the container with no network call, finds PII; the core replaces an allowlist of types at score ≥ 0.4 with `<TYPE_n>` placeholders: names, email, phone, cards, IBAN, and every market's IDs (US SSN and ITIN, Mexico's CURP and CLABE, El Salvador's DUI, Spain's NIF and NIE; Colombia's cédula and Peru's DNI with their markets). Our IDs must pass their check digits. Detection runs on plain text, without invisible characters or fullwidth digits, and a short list of banking words and greetings is never a name. Places, dates and amounts stay. `reply` only accepts the redacted text, so the query vector is built from it too. If the detector fails the message is refused (`503 guardrails_unavailable`), and a cloud deploy without a detector refuses to start. Logged by type and count, never by value ([ADR 0008](adr/0008-guardrails-tools-access.md)). **The answer is scanned too** as it streams, with the pattern recognizers only (no NER, ~0.6 ms a chunk): the last 64 characters are held back so an ID split across chunks is caught whole, and anything found, or any placeholder the model repeats, becomes «[dato protegido]». A scan failure ends the answer without the held-back text. `chat.time_to_first_text_ms` measures what the hold-back adds to the visitor's wait | M3 (live) |
-| 4 | Session | Recent turns loaded from the session store | M3 |
+| 4 | Session | Loaded from Firestore while the NER runs, then it numbers the placeholders, so a value keeps its `<TYPE_n>` on every turn. Only its owner's `sub` may use it: anyone else, including the same visitor after signing in or out, starts a new conversation. The model gets the last 6 turns as its own user and model messages, never pasted into the question. A completed answer is saved as the next turn, version-checked; a blocked, failed or abandoned one isn't. If the store can't be reached the answer goes on without history ([ADR 0008](adr/0008-guardrails-tools-access.md)) | M3 (live) |
 | 5 | Retrieval | multilingual-e5-small, in the container, embeds the question (`query:` prefix); Neon returns the top 4 chunks, **always filtered by market**, with HNSW iterative scans so the filter can't leave too few ([ADR 0007](adr/0007-rag-design.md)) | M2 (live) |
 | 6 | Model | One streamed Gemini call; stable system prompt prefix for caching; thinking at minimal | M0 (live) |
 | 7 | Tools | Only if the model asks: the tier, scope and ownership checks run before any tool | M3 |
@@ -494,7 +501,7 @@ The full procedure and the security test layers are in [BOOTSTRAP.md](../infra/B
 | Cloud Run (request-based) | 2M requests, 180k vCPU-s, 360k GiB-s a month | Scale to zero, max 1 instance |
 | Artifact Registry | 0.5 GB | The live image and one rollback, sharing their large layers; each deploy prunes the rest |
 | Secret Manager | 6 versions, 10k accesses a month, per billing account | 6 versions, the whole allowance: Neon's connection strings share three by who reads them ([ADR 0006](adr/0006-neon-outside-terraform.md)), and a new secret must fit in an existing one |
-| Firestore (Standard edition) | 1 GiB, and 50k reads, 20k writes and 20k deletes a day, for the project's first database. No free usage for TTL deletes, backups or point-in-time recovery, so all three stay off | The sessions database; no data until the `SessionStore` slice |
+| Firestore (Standard edition) | 1 GiB, and 50k reads, 20k writes and 20k deletes a day, for the project's first database. No free usage for TTL deletes, backups or point-in-time recovery, so all three stay off | Sessions: each turn is 2 reads (load, then the save's version check) and 1 write, so writes run out first, at about 20k turns a day; a session is a few KB |
 | Gemini (AI Studio) | Free tier, key in a project with **no billing** | It returns 429 at the limit instead of billing |
 | Neon Postgres + pgvector | 0.5 GB storage, 100 CU-hours a month per project; compute suspends at the limit instead of billing | Usage rows and 84 knowledge chunks (a few MB); scales to zero after 5 minutes idle |
 | e5 embeddings | In the container: no API, no quota | ~70 ms a text on Cloud Run's CPU |

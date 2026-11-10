@@ -4,10 +4,16 @@ With a market, the question's nearest policy chunks go to the model after the st
 prompt, and the reply starts with a `Sources` event naming them. Without one, the model answers
 alone, as before M2: the chat page sends a market from #89, which makes it required.
 
-Personal data is redacted first (ADR 0008): `redact` runs before the stream starts, and `reply`
+Personal data is redacted first (ADR 0008): `prepare` runs before the stream starts, and `reply`
 accepts only its `Redacted` result, so retrieval, the query vector and the model never see the raw
 text. The answer is scanned as it streams, holding back its last 64 characters, so an ID the model
 writes never reaches the page whole. Tools come later in M3.
+
+With sessions (ADR 0008), `prepare` also opens the conversation: it loads while the NER runs, then
+numbers the placeholders, so a value keeps its `<TYPE_n>` on every turn. The model gets the last
+turns as its own user and model messages, and a completed answer is saved as the next turn.
+Memory is a convenience and redaction isn't: if the store can't be reached the answer goes on
+without history and nothing is saved, while a failed redaction still refuses the message.
 
 Each step is one span (OpenTelemetry API only, which is cloud-free), so time to first token breaks
 down by stage. Spans carry sizes, scores, counts and timings, never message or chunk text. Every
@@ -17,16 +23,21 @@ model call also writes one usage record, after the answer has streamed.
 import asyncio
 import logging
 import time
+from collections import Counter
 from collections.abc import AsyncIterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
+from core.identity import Caller
 from core.ports import LLMProvider, UsageSink
-from core.redaction import Redacted, Redactor, summary, unredacted
+from core.redaction import Found, Redacted, Redactor, summary, unredacted
 from core.retrieval import RetrievedChunk, Retriever
 from core.safety import ContentBlocked
+from core.sessions import Session, SessionConflict, SessionRefused, Sessions
 from core.usage import LLMUsage, Outcome, TokenUsage
 
 tracer = trace.get_tracer(__name__)
@@ -48,10 +59,13 @@ SYSTEM_PROMPT = (
     "repitas ni intentes adivinar qué ocultan."
 )
 
-# What the prompt is made of, recorded by name (never content) with each call. Sessions add
-# "history" in M3.
+# What the prompt is made of, recorded by name (never content) with each call.
 PROMPT_PARTS = ("system", "user")
 PROMPT_PARTS_WITH_CONTEXT = ("system", "context", "user")
+
+# Session loads run here, beside the NER. A load is one short read, so a few threads keep up with
+# the 20 requests an instance serves at once.
+_SESSION_LOADS = ThreadPoolExecutor(max_workers=8, thread_name_prefix="session-load")
 
 MAX_MESSAGE_CHARS = 2000
 
@@ -75,6 +89,24 @@ class Sources:
     """The first event of a reply with a market: what the model was given, even if nothing."""
 
     sources: tuple[Source, ...]
+
+
+@dataclass(frozen=True)
+class Prepared:
+    """A message ready for `reply`: redacted, with its conversation when sessions are on."""
+
+    redacted: Redacted
+    session: Session | None = None  # None: no sessions, or the store couldn't be reached
+
+
+def prompt_parts(history: bool, context: bool) -> tuple[str, ...]:
+    """The prompt's parts by name, in order: what usage records say it was made of."""
+    return (
+        "system",
+        *(("history",) if history else ()),
+        *(("context",) if context else ()),
+        "user",
+    )
 
 
 def sources_for(chunks: Sequence[RetrievedChunk]) -> Sources:
@@ -104,12 +136,14 @@ class ChatService:
         cloud: str = "local",
         retriever: Retriever | None = None,
         redactor: Redactor | None = None,
+        sessions: Sessions | None = None,
     ):
         self._llm = llm
         self._usage = usage
         self._cloud = cloud
         self._retriever = retriever
         self._redactor = redactor
+        self._sessions = sessions
 
     def redact(self, text: str) -> Redacted:
         """The message with its personal data replaced, before anything else reads it.
@@ -119,38 +153,115 @@ class ChatService:
         Without a redactor (tests, local runs) the text passes as it is; the API refuses to start
         that way on a cloud.
         """
+        found = self._find(text)
+        return found.redact() if found is not None else unredacted(text)
+
+    def prepare(self, text: str, caller: Caller, session_id: str | None = None) -> Prepared:
+        """The message redacted, with the caller's conversation when sessions are on.
+
+        The session loads in another thread while the NER runs, then numbers the placeholders. A
+        session ID that's unknown, expired or malformed starts a new conversation, and so does one
+        that belongs to someone else: signing in or out mid-conversation starts afresh, as ADR 0008
+        says, and nobody learns whose it was. Raises as `redact` does; a store that can't be
+        reached only costs the history. CPU-bound and blocking: call it off the event loop.
+        """
+        if self._sessions is None:
+            return Prepared(self.redact(text))
+        loading = _SESSION_LOADS.submit(
+            self._open_session, caller, session_id, otel_context.get_current()
+        )
+        found = self._find(text)  # if it raises, the load finishes on its own and is dropped
+        session = loading.result()
+        if found is None:
+            return Prepared(unredacted(text), session)
+        numbering = self._sessions.numbering(session) if session is not None else None
+        return Prepared(found.redact(numbering), session)
+
+    def _find(self, text: str) -> Found | None:
         if self._redactor is None:
-            return unredacted(text)
+            return None
         # record_exception=False: a detector error can quote the text.
         with tracer.start_as_current_span(
             "chat.redaction", record_exception=False, set_status_on_exception=False
         ) as span:
             span.set_attribute("redaction.stage", "input")
             try:
-                redacted = self._redactor.redact(text)
+                found = self._redactor.find(text)
             except Exception as exc:
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", type(exc).__name__)
                 raise
-            span.set_attribute("redaction.count", sum(redacted.counts.values()))
-            span.set_attribute("redaction.types", sorted(redacted.counts))
-            return redacted
+            counts = Counter(s.entity_type for s in found.spans)
+            span.set_attribute("redaction.count", len(found.spans))
+            span.set_attribute("redaction.types", sorted(counts))
+            return found
+
+    def _open_session(
+        self, caller: Caller, session_id: str | None, parent: otel_context.Context
+    ) -> Session | None:
+        assert self._sessions is not None
+        attached = otel_context.attach(parent)  # this thread's span joins the request's trace
+        try:
+            with tracer.start_as_current_span(
+                "chat.session_load", record_exception=False, set_status_on_exception=False
+            ) as span:
+                refused = False
+                try:
+                    session = self._sessions.open(caller, session_id)
+                except SessionRefused:
+                    session, refused = self._sessions.start(caller), True
+                    logger.info("session_refused")  # someone else's: a new one, and no detail
+                except Exception as exc:  # SessionUnavailable, or anything else from the store
+                    cause = type(exc.__cause__ or exc).__name__
+                    logger.warning("session_unavailable type=%s", cause)
+                    span.set_status(Status(StatusCode.ERROR))
+                    span.set_attribute("error.type", cause)
+                    return None
+                # Never the ID: whoever holds it can write to an anonymous conversation.
+                span.set_attribute("session.new", session.version == 0)
+                span.set_attribute("session.refused", refused)
+                span.set_attribute("session.turns", len(session.turns))
+                return session
+        finally:
+            otel_context.detach(attached)
+
+    def _save(self, session: Session) -> None:
+        """Stores the finished turn. It never fails a chat: the answer has already been shown."""
+        assert self._sessions is not None
+        with tracer.start_as_current_span(
+            "chat.session_save", record_exception=False, set_status_on_exception=False
+        ) as span:
+            try:
+                self._sessions.save(session)
+            except SessionConflict:
+                # Another request on this conversation saved first, or it expired and was swept:
+                # this turn isn't kept, and the next request carries on from what was stored.
+                logger.info("session_conflict")
+                span.set_attribute("session.conflict", True)
+            except Exception as exc:
+                cause = type(exc.__cause__ or exc).__name__
+                logger.warning("session_save_error type=%s", cause)
+                span.set_status(Status(StatusCode.ERROR))
+                span.set_attribute("error.type", cause)
 
     async def reply(
-        self, redacted: Redacted, market: str | None = None
+        self, redacted: Redacted, market: str | None = None, session: Session | None = None
     ) -> AsyncIterator[str | Sources]:
         """Streams the answer's text, after a `Sources` event when the market is retrieved from.
 
         Without a market or a retriever, the model answers alone. The market must already be a
-        known one; the API refuses others before streaming.
+        known one; the API refuses others before streaming. With a session, the model gets its
+        last turns, and an answer that completes is saved as the next one.
         """
         message = redacted.text
-        parts: tuple[str, ...] = PROMPT_PARTS
+        history = tuple(session.turns) if session is not None else ()
+        retrieved: list[RetrievedChunk] | None = None
         prompt = message
         if market is not None and self._retriever is not None:
             retrieved = await self._retrieve(message, market)
-            prompt, parts = user_message(message, retrieved), PROMPT_PARTS_WITH_CONTEXT
+            prompt = user_message(message, retrieved)
             yield sources_for(retrieved)
+        parts = prompt_parts(history=bool(history), context=retrieved is not None)
 
         tokens = TokenUsage()
         outcome: Outcome = "incomplete"  # stays so if the client leaves mid-stream
@@ -158,6 +269,7 @@ class ChatService:
         scanner = self._redactor.output_scanner() if self._redactor is not None else None
         ttft_ms: int | None = None
         blocked: tuple[str, ...] = ()
+        answer: list[str] = []  # what the visitor saw, which is what the session keeps
         # record_exception=False: the exception message can quote the user's text.
         with tracer.start_as_current_span(
             "chat.model", record_exception=False, set_status_on_exception=False
@@ -168,7 +280,9 @@ class ChatService:
             chunks = 0
             shown = False
             try:
-                async for delta in self._llm.stream(SYSTEM_PROMPT, prompt, usage=tokens):
+                async for delta in self._llm.stream(
+                    SYSTEM_PROMPT, prompt, usage=tokens, history=history
+                ):
                     if chunks == 0:
                         ttft_ms = round((time.perf_counter() - start) * 1000)
                         span.set_attribute("llm.time_to_first_token_ms", ttft_ms)
@@ -182,6 +296,7 @@ class ChatService:
                                 "chat.time_to_first_text_ms",
                                 round((time.perf_counter() - start) * 1000),
                             )
+                        answer.append(released)
                         yield released
                 if scanner is not None and (rest := scanner.finish()):
                     if not shown:  # a short answer is released whole, at the end
@@ -189,6 +304,7 @@ class ChatService:
                             "chat.time_to_first_text_ms",
                             round((time.perf_counter() - start) * 1000),
                         )
+                    answer.append(rest)
                     yield rest
                 outcome = "done"
             except ContentBlocked as exc:
@@ -226,6 +342,11 @@ class ChatService:
                     # Shielded: if the client disconnects and the request is cancelled, the row
                     # is still written.
                     await asyncio.shield(self._usage.record(record))
+
+        # Only a completed answer becomes a turn: a blocked, failed or abandoned one is never kept.
+        if session is not None and self._sessions is not None:
+            session.add_turn(redacted, "".join(answer))
+            await asyncio.to_thread(self._save, session)
 
     async def _retrieve(self, message: str, market: str) -> list[RetrievedChunk]:
         assert self._retriever is not None

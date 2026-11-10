@@ -8,10 +8,10 @@ from core.pii import PIISpan
 from core.tools import ToolResult, ToolSpec
 from core.usage import LLMUsage, TokenUsage
 
-if TYPE_CHECKING:  # core.indexing and core.retrieval import this module
+if TYPE_CHECKING:  # core.indexing, core.retrieval and core.sessions import this module
     from core.indexing import StoredChunk
     from core.retrieval import RetrievedChunk
-    from core.sessions import Session
+    from core.sessions import Session, Turn
 
 
 class LLMProvider(Protocol):
@@ -22,12 +22,20 @@ class LLMProvider(Protocol):
     stream; the core measures time and outcome and records the call through a UsageSink. When the
     provider's safety filters block the message or the answer, the stream raises
     `core.safety.ContentBlocked`, even if some text was already streamed.
+
+    `history` is the conversation so far, oldest first. The adapter sends each turn as the
+    provider's own user and model messages, never pasted into `user_message`: text the customer
+    typed can then never pose as an earlier answer or as the sources.
     """
 
     model: str  # model name, for traces and usage records
 
     def stream(
-        self, system: str, user_message: str, usage: TokenUsage | None = None
+        self,
+        system: str,
+        user_message: str,
+        usage: TokenUsage | None = None,
+        history: Sequence["Turn"] = (),
     ) -> AsyncIterator[str]: ...
 
 

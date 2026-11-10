@@ -37,7 +37,7 @@ class RecordingLLM:
         self.calls: list[tuple[str, str]] = []
 
     async def stream(
-        self, system: str, user_message: str, usage: TokenUsage | None = None
+        self, system: str, user_message: str, usage: TokenUsage | None = None, history: object = ()
     ) -> AsyncIterator[str]:
         self.calls.append((system, user_message))
         yield "Respuesta."

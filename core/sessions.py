@@ -146,7 +146,7 @@ class Sessions:
         if session_id is not None and _SESSION_ID.fullmatch(session_id):
             session = self._store.load(session_id, self._clock())
         if session is None:
-            return self._new(caller)
+            return self.start(caller)
         if session.sub != caller.sub:
             raise SessionRefused()
         return session
@@ -169,7 +169,8 @@ class Sessions:
             except SessionUnavailable as exc:
                 logger.warning("session_sweep_error type=%s", type(exc).__name__)
 
-    def _new(self, caller: Caller) -> Session:
+    def start(self, caller: Caller) -> Session:
+        """A new session for this caller, not stored until `save`."""
         now = self._clock()
         ttl = ANONYMOUS_TTL_SECONDS if caller.sub is None else SIGNED_IN_TTL_SECONDS
         return Session(

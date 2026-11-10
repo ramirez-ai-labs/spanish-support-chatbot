@@ -20,7 +20,7 @@ from opentelemetry.trace import SpanKind, Status, StatusCode
 from pydantic import BaseModel, Field
 
 from core.bot_check import BotCheckFailed
-from core.chat import MAX_MESSAGE_CHARS, ChatService, KnowledgeUnavailable, Sources
+from core.chat import MAX_MESSAGE_CHARS, ChatService, KnowledgeUnavailable, Prepared, Sources
 from core.identity import ANONYMOUS, Caller, IdentityUnavailable, InvalidToken, caller_for
 from core.knowledge import Market, load_docs, load_markets
 from core.pii import DetectorUnavailable
@@ -34,9 +34,10 @@ from core.ports import (
     SignInLinkSender,
     UsageSink,
 )
-from core.redaction import Redacted, Redactor
+from core.redaction import Redactor
 from core.retrieval import Retriever
 from core.safety import ContentBlocked
+from core.sessions import MASTER_KEY_BYTES, Sessions
 from core.sign_in import MAX_EMAIL_CHARS, SignInLinkFailed, looks_like_email
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,9 @@ class ChatRequest(BaseModel):
     # Optional in the schema only so that a missing market is refused after the token and bot
     # checks (400 market_required), never ahead of them with a 422.
     market: str | None = Field(default=None, max_length=8)
+    # The conversation to continue, from the `session` event of an earlier answer. Anything that
+    # isn't one of this caller's live sessions starts a new conversation, so it's never refused.
+    session_id: str | None = Field(default=None, max_length=64)
 
 
 class SignInLinkRequest(BaseModel):
@@ -220,6 +224,42 @@ def build_pii_detector() -> PIIDetector | None:
     raise ValueError(f"Unknown PII_DETECTOR: {choice!r} (expected 'presidio' or 'none')")
 
 
+def build_sessions() -> Sessions | None:
+    """Pick the session store from SESSION_STORE; none by default (tests, local runs).
+
+    The placeholder key comes from SESSION_HMAC_KEY: hex, from the secret store on a cloud
+    (`infra/scripts/session-hmac-key.sh`). A missing or short key stops the start. In memory,
+    without one, each process makes its own, since nothing it numbers outlives it.
+    """
+    store = os.environ.get("SESSION_STORE", "none")
+    if store == "none":
+        return None
+    hex_key = os.environ.get("SESSION_HMAC_KEY", "")
+    if store == "memory":
+        from adapters.shared.memory_sessions import MemorySessionStore
+
+        if not hex_key:
+            import secrets
+
+            hex_key = secrets.token_hex(MASTER_KEY_BYTES)
+        return Sessions(MemorySessionStore(), master_key(hex_key))
+    if store == "firestore":
+        from adapters.gcp.firestore_sessions import firestore_session_store
+
+        return Sessions(
+            firestore_session_store(os.environ["GOOGLE_CLOUD_PROJECT"]), master_key(hex_key)
+        )
+    raise ValueError(f"Unknown SESSION_STORE: {store!r} (expected 'firestore', 'memory' or 'none')")
+
+
+def master_key(hex_key: str) -> bytes:
+    """The key's bytes. Errors name the variable, never its value."""
+    try:
+        return bytes.fromhex(hex_key)
+    except ValueError:
+        raise ValueError("SESSION_HMAC_KEY must be hex") from None
+
+
 def build_retriever(embedder: Embedder | None, markets: Mapping[str, Market]) -> Retriever | None:
     """Pick where retrieval searches from KNOWLEDGE_STORE; none by default (tests, local runs).
 
@@ -284,6 +324,7 @@ def create_app(
     retriever: Retriever | None = None,
     markets: Mapping[str, Market] | None = None,
     pii_detector: PIIDetector | None = None,
+    sessions: Sessions | None = None,
 ) -> FastAPI:
     if markets is None:
         markets = load_markets(KNOWLEDGE / "markets.yaml")
@@ -298,6 +339,7 @@ def create_app(
         sign_in = build_sign_in()
         retriever = build_retriever(build_embedder(), markets)
         pii_detector = build_pii_detector()
+        sessions = build_sessions()
     cloud = os.environ.get("CLOUD", "local")
     if pii_detector is None and cloud != "local":
         # Redaction is a guarantee, not a setting: a missing variable must not switch it off.
@@ -308,6 +350,7 @@ def create_app(
         cloud=cloud,
         retriever=retriever,
         redactor=Redactor(pii_detector) if pii_detector is not None else None,
+        sessions=sessions,
     )
 
     def identify(authorization: str | None) -> Caller:
@@ -409,7 +452,7 @@ def create_app(
         # the redacted message text goes on to the chat service and the model.
         caller, probe = ANONYMOUS, False
         rejection: tuple[str, int] | None = None
-        redacted: Redacted | None = None
+        prepared: Prepared | None = None
         with trace.use_span(span, record_exception=False, set_status_on_exception=False):
             try:
                 caller = identify(http.headers.get("authorization"))
@@ -426,15 +469,18 @@ def create_app(
                 rejection = ("unknown_market", 400)
             if rejection is None:
                 # Redaction right after the checks, which don't read the text, and before anything
-                # that does. If it fails the message is refused: unredacted text goes no further.
+                # that does, with the session loading beside it. If redaction fails the message is
+                # refused: unredacted text goes no further.
                 try:
-                    redacted = chat.redact(request.message)
+                    prepared = chat.prepare(request.message, caller, request.session_id)
                 except Exception as exc:
                     logger.warning("guardrails_error type=%s", type(exc).__name__)
                     rejection = ("guardrails_unavailable", 503)
                 else:
-                    if redacted.counts:  # types and counts, never the values
-                        logger.info("pii_redacted stage=input types=%s", redacted.summary())
+                    if prepared.redacted.counts:  # types and counts, never the values
+                        logger.info(
+                            "pii_redacted stage=input types=%s", prepared.redacted.summary()
+                        )
             if rejection is not None:
                 # The reason code only: never a token or its claims. Logged inside the span,
                 # so Cloud Logging links the line to this request's trace.
@@ -449,7 +495,8 @@ def create_app(
                     headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
                 )
             return JSONResponse({"error": reason}, status_code=status)
-        assert redacted is not None  # every path without a rejection redacted the message
+        assert prepared is not None  # every path without a rejection redacted the message
+        turn: Prepared = prepared  # for the closures below, where the assert doesn't reach
         span.set_attributes(
             {
                 "auth.tier": caller.tier.value,
@@ -470,8 +517,12 @@ def create_app(
                     await asyncio.to_thread(flush_traces)
 
         async def stream_chat(span: trace.Span) -> AsyncIterator[str]:
+            if turn.session is not None:
+                # First, so the page can send it with the next message. Not on the span or in logs.
+                data = json.dumps({"session_id": turn.session.id})
+                yield f"event: session\ndata: {data}\n\n"
             try:
-                async for event in chat.reply(redacted, request.market):
+                async for event in chat.reply(turn.redacted, request.market, turn.session):
                     if isinstance(event, Sources):
                         # Before the first delta, so the page can show them as the answer streams.
                         sources = [vars(source) for source in event.sources]
