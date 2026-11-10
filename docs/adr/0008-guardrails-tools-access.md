@@ -4,6 +4,7 @@
 - **Date:** 2026-11-03
 - **Amended:** 2026-11-05: action tools are offered to every signed-in caller, so step-up can be reached; expired sessions are refused on read and swept on create, and only a session's exact owner may use it; the placeholder HMAC's key comes from a master key in the secret store
 - **Amended:** 2026-11-09: history goes to the model as separate turns; someone else's session starts a new one instead of being an error; a store that can't be reached costs the history, not the chat
+- **Amended:** 2026-11-10: a session is about one market, and a message for another starts a new one; a short follow-up is retrieved together with the previous question
 - **Milestone:** M3 (#51)
 
 ## Context
@@ -215,6 +216,13 @@ Placeholders, repeated questions and pending actions all need them.
 - **Someone else's session isn't an error.** A session ID that's unknown, expired, malformed or
   another owner's starts a new conversation, with nothing said about why. So signing in or out
   mid-conversation just starts afresh, and the page also forgets the ID when it signs out.
+- **One market per conversation.** A session records its market, and a message for another market
+  starts a new conversation. Otherwise one country's answers would reach the model beside
+  another's sources.
+- **Follow-ups are retrieved with the question before them.** A message of 60 characters or less,
+  after an earlier turn («¿Y cuánto tarda?»), is embedded together with the previous question,
+  which names the topic. The model still gets the message alone. No model call decides it, and
+  M4's eval set measures the cut-off.
 - **Memory is a convenience, redaction isn't.** If the store can't be reached, the answer goes
   on without history and the turn isn't saved. A failed redaction still refuses the message.
   Only a completed answer is saved: a blocked, failed or abandoned one never becomes a turn.

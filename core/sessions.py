@@ -6,6 +6,8 @@ keeps records.
 - **Owner:** a session belongs to the `sub` that started it, or to nobody for an anonymous visitor,
   and only that exact caller may use it. So signing in starts a new session: continuing an anonymous
   one would let whoever knew its ID write into a customer's history, which later reaches the model.
+- **Market:** a conversation is about one market's policy. A message for another market starts a
+  new one, so the model never sees one country's answers beside another's sources.
 - **Lifetime:** fixed from creation, 30 days signed in and 1 day anonymous. An expired session is
   never served, whether or not it has been deleted yet.
 - **Contents:** only redacted text, the last 6 turns. `add_turn` takes a `Redacted` question, and
@@ -77,6 +79,7 @@ class Session:
     placeholders: dict[str, int] = field(default_factory=dict)  # HMAC of a value -> its number
     counters: dict[str, int] = field(default_factory=dict)  # entity type -> numbers given out
     turns: list[Turn] = field(default_factory=list)
+    market: str | None = None  # the market it's about; None only in sessions stored before it
     version: int = 0  # 0: not stored yet. The store raises it on each save
 
     def add_turn(self, question: Redacted, answer: str) -> None:
@@ -122,6 +125,7 @@ def from_record(record: Mapping[str, Any]) -> Session:
         placeholders=dict(record["placeholders"]),
         counters=dict(record["counters"]),
         turns=[Turn(turn["question"], turn["answer"]) for turn in record["turns"]],
+        market=record.get("market"),  # absent in sessions stored before markets were kept
         version=record["version"],
     )
 
@@ -136,8 +140,9 @@ class Sessions:
         self._master_key = master_key
         self._clock = clock
 
-    def open(self, caller: Caller, session_id: str | None) -> Session:
-        """The caller's session, or a new one if the ID is missing, malformed, unknown or expired.
+    def open(self, caller: Caller, session_id: str | None, market: str | None = None) -> Session:
+        """The caller's session, or a new one if the ID is missing, malformed, unknown or expired,
+        or the session is about another market.
 
         Raises `SessionRefused` for someone else's, and `SessionUnavailable` if the store fails. A
         new session isn't stored until `save`, so a refused message writes nothing.
@@ -146,9 +151,14 @@ class Sessions:
         if session_id is not None and _SESSION_ID.fullmatch(session_id):
             session = self._store.load(session_id, self._clock())
         if session is None:
-            return self.start(caller)
+            return self.start(caller, market)
         if session.sub != caller.sub:
             raise SessionRefused()
+        if market is not None and session.market not in (None, market):
+            logger.info("session_market_changed")  # the codes only matter to the caller
+            return self.start(caller, market)
+        if session.market is None:
+            session.market = market  # stored before markets were kept: it takes this one
         return session
 
     def numbering(self, session: Session) -> PlaceholderNumbers:
@@ -169,7 +179,7 @@ class Sessions:
             except SessionUnavailable as exc:
                 logger.warning("session_sweep_error type=%s", type(exc).__name__)
 
-    def start(self, caller: Caller) -> Session:
+    def start(self, caller: Caller, market: str | None = None) -> Session:
         """A new session for this caller, not stored until `save`."""
         now = self._clock()
         ttl = ANONYMOUS_TTL_SECONDS if caller.sub is None else SIGNED_IN_TTL_SECONDS
@@ -178,4 +188,5 @@ class Sessions:
             sub=caller.sub,
             created_at=now,
             expires_at=now + ttl,
+            market=market,
         )

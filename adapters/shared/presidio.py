@@ -148,9 +148,11 @@ class PresidioDetector:
         from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
         from presidio_analyzer.nlp_engine import NlpEngineProvider
 
-        # One line per recognizer on every cold start, including other countries' that never run
-        # on Spanish text: noise in the logs.
-        logging.getLogger("presidio-analyzer").setLevel(logging.WARNING)
+        # Loading the registry warns once for each other language's recognizer it skips, about 20
+        # lines on every cold start that bury real warnings. Errors only while it loads; warnings
+        # from detection still show.
+        presidio_log = logging.getLogger("presidio-analyzer")
+        presidio_log.setLevel(logging.WARNING)
         _offline_tldextract()
         nlp = NlpEngineProvider(
             nlp_configuration={
@@ -159,7 +161,11 @@ class PresidioDetector:
             }
         ).create_engine()
         registry = RecognizerRegistry(supported_languages=[LANGUAGE])
-        registry.load_predefined_recognizers(languages=[LANGUAGE], nlp_engine=nlp)
+        presidio_log.setLevel(logging.ERROR)
+        try:
+            registry.load_predefined_recognizers(languages=[LANGUAGE], nlp_engine=nlp)
+        finally:
+            presidio_log.setLevel(logging.WARNING)
         registry.remove_recognizer("PhoneRecognizer", language=LANGUAGE)  # ours has the regions
         for recognizer in _recognizers():
             registry.add_recognizer(recognizer)

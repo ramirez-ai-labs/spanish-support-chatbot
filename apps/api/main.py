@@ -54,7 +54,8 @@ class ChatRequest(BaseModel):
     # checks (400 market_required), never ahead of them with a 422.
     market: str | None = Field(default=None, max_length=8)
     # The conversation to continue, from the `session` event of an earlier answer. Anything that
-    # isn't one of this caller's live sessions starts a new conversation, so it's never refused.
+    # isn't one of this caller's live sessions for this market starts a new conversation, so it's
+    # never refused.
     session_id: str | None = Field(default=None, max_length=64)
 
 
@@ -472,7 +473,9 @@ def create_app(
                 # that does, with the session loading beside it. If redaction fails the message is
                 # refused: unredacted text goes no further.
                 try:
-                    prepared = chat.prepare(request.message, caller, request.session_id)
+                    prepared = chat.prepare(
+                        request.message, caller, request.session_id, request.market
+                    )
                 except Exception as exc:
                     logger.warning("guardrails_error type=%s", type(exc).__name__)
                     rejection = ("guardrails_unavailable", 503)

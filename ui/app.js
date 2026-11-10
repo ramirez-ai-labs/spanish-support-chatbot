@@ -12,8 +12,9 @@
 // the page exchanges it for an ID token. Tokens live in sessionStorage, so closing the tab signs out.
 //
 // The conversation's ID (from the API's `session` event) lives only in this page's memory, so a
-// reload starts a new conversation, as the empty page suggests. Signing out forgets it too: the
-// API would start a new conversation anyway, since a session belongs to whoever started it.
+// reload starts a new conversation, as the empty page suggests. Signing out and changing market
+// forget it too: the API would start a new conversation anyway, since a session belongs to
+// whoever started it and to one market.
 "use strict";
 
 const config = window.CHAT_CONFIG;
@@ -136,6 +137,7 @@ async function loadMarkets() {
 
 marketSelect.addEventListener("change", () => {
   statusLine.textContent = "";
+  conversationId = null; // another market's policy: a new conversation (the API starts one anyway)
   try {
     localStorage.setItem(MARKET, marketSelect.value);
   } catch {
