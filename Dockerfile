@@ -13,17 +13,12 @@ ENV UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_HTTP_RETRIES=8
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --extra "$CLOUD"
-# multilingual-e5-small, int8 ONNX (ADR 0007), pinned by revision and checksum (the same pins as
-# adapters/shared/e5.py; a test keeps them in step). The directory exists before ADD: newer
-# BuildKit applies ADD's --chmod=644 to the parent directories it creates as well, and a directory
-# without x can't be entered by the app user.
-RUN mkdir -p /layers/models/app/models/e5
-ADD --checksum=sha256:f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193 --chmod=644 \
-    https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/onnx/model_quantized.onnx \
-    /layers/models/app/models/e5/model.onnx
-ADD --checksum=sha256:0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39 --chmod=644 \
-    https://huggingface.co/Xenova/multilingual-e5-small/resolve/761b726dd34fb83930e26aab4e9ac3899aa1fa78/tokenizer.json \
-    /layers/models/app/models/e5/tokenizer.json
+# multilingual-e5-small, int8 ONNX (ADR 0007), downloaded by the adapter's own fetch, which holds
+# the pins (revision and checksums) and retries. Not ADD --checksum: Hugging Face's CDN often
+# answers 502 with an empty body, which ADD takes as the file, so its checksum fails the build.
+# The script runs alone (it imports only numpy, from the venv); the timestamps are reset below.
+COPY adapters/shared/e5.py /tmp/e5.py
+RUN .venv/bin/python /tmp/e5.py fetch /layers/models/app/models/e5 && rm /tmp/e5.py
 # The registry's free tier (0.5 GB) must hold the live image and its rollback, which it can only do
 # if they share layers, and layers are shared only when they're byte-identical. So:
 # - Bytecode is compiled at its final path with unchecked hashes, so no .pyc records a timestamp.
