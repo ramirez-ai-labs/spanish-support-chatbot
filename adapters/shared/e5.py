@@ -23,8 +23,8 @@ REPOSITORY = (
     "Xenova/multilingual-e5-small"  # an ONNX export of intfloat/multilingual-e5-small (MIT)
 )
 REVISION = "761b726dd34fb83930e26aab4e9ac3899aa1fa78"
-# Local name -> (path in the repository, SHA-256). The Dockerfile pins the same values; a test
-# checks they match.
+# Local name -> (path in the repository, SHA-256). The only copy of the pins: the Dockerfile, CI
+# and the index workflow all download through fetch().
 MODEL_FILES = {
     "model.onnx": (
         "onnx/model_quantized.onnx",
@@ -90,18 +90,41 @@ class E5Embedder:
         return vectors
 
 
+# Each of the CDN's 502s takes ~12 s; 10 tries with waits capped at 20 s stay under ~5 min a file,
+# inside the 10-minute CI jobs. Seen on 2026-11-22: the model needed 7 tries.
+FETCH_ATTEMPTS = 10
+
+
 def fetch(target: Path) -> None:
-    """Downloads the pinned files into `target`, refusing any whose checksum doesn't match."""
+    """Downloads the pinned files into `target`, refusing any whose checksum doesn't match.
+
+    Hugging Face serves the files from its Xet CDN, which often answers 502 with an empty body, so
+    each file gets several tries. A short or wrong download is retried too, but never kept: only a
+    file whose checksum matches is written.
+    """
     target.mkdir(parents=True, exist_ok=True)
     for name, (path, sha256) in MODEL_FILES.items():
         destination = target / name
         if destination.exists() and _sha256(destination) == sha256:
             continue
-        with urllib.request.urlopen(file_url(path), timeout=120) as response:  # noqa: S310 (fixed https URL)
-            data = response.read()
-        if hashlib.sha256(data).hexdigest() != sha256:
-            raise RuntimeError(f"{name}: checksum mismatch; refusing the download")
-        destination.write_bytes(data)
+        destination.write_bytes(_download(name, file_url(path), sha256))
+
+
+def _download(name: str, url: str, sha256: str) -> bytes:
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as response:  # noqa: S310 (fixed https URL)
+                data: bytes = response.read()
+        except OSError as error:  # HTTPError (the CDN's 502s), URLError and timeouts
+            problem = f"{type(error).__name__}: {error}"
+        else:
+            if hashlib.sha256(data).hexdigest() == sha256:
+                return data
+            problem = f"checksum mismatch ({len(data)} bytes)"
+        print(f"{name}: try {attempt}/{FETCH_ATTEMPTS} failed: {problem}", file=sys.stderr)
+        if attempt < FETCH_ATTEMPTS:
+            time.sleep(min(2**attempt, 20))
+    raise RuntimeError(f"{name}: {problem} after {FETCH_ATTEMPTS} tries; refusing the download")
 
 
 def check(model_dir: Path) -> None:
