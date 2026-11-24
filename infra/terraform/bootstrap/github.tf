@@ -36,7 +36,9 @@ import {
 resource "github_repository" "this" {
   name        = local.repository
   description = local.repository
-  visibility  = "public" # portfolio repo; private would also switch off free CodeQL and secret scanning
+  # The live chat page, as GitHub stores it (with the trailing slash, so plans show no change).
+  homepage_url = "${var.ui_origin}/"
+  visibility   = "public" # portfolio repo; private would also switch off free CodeQL and secret scanning
 
   has_issues      = true
   has_projects    = true
