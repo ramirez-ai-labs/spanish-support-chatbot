@@ -300,7 +300,7 @@ lands only after the value is in.
 | --- | --- | --- | --- |
 | `chatbot_owner` | everything (Neon admin role); migrations only | `neon-owner-urls` | you |
 | `usage_writer` | `INSERT` into `llm_usage`, nothing else | `neon-api-urls` | `chatbot-run` |
-| `app_gcp` | `SELECT` on `chunks`, nothing else | `neon-api-urls` | `chatbot-run` |
+| `app_gcp` | `SELECT` on `chunks` and `bank.cards`, nothing else | `neon-api-urls` | `chatbot-run` |
 | `indexer` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on `chunks`, nothing else | `neon-indexer-urls` | `indexer-ci` |
 
 `indexer-ci` is the knowledge indexing workflow's account (ADR 0007). Google trusts it only for
@@ -311,6 +311,19 @@ Actions secret `GCP_INDEXER_SA` (bootstrap output `indexer_service_account`).
 - [x] M1: migrations 0001–0002 applied; `usage_writer` password set (2026-11-01)
 - [x] M2: migration 0004 applied (2026-11-02)
 - [x] M2: `app_gcp` and `indexer` passwords set; `GCP_INDEXER_SA` added (#84, 2026-11-02)
+- [ ] M3: migration 0005 (`bank` schema) applied on `main` and `dev`; test users seeded
+
+### Seed test users' synthetic cards (M3, after 0005)
+
+The card tools read `bank.cards`, which holds synthetic cards only, stored by their last 4 digits.
+[`seed_bank.py`](../migrations/seed_bank.py) gives each test user a debit and a credit card.
+Rerunning it adds nothing. A test user's sub is their user ID in Identity Platform's user list,
+which exists once they have signed in by email link. Pass subs as arguments; never commit them.
+With `MIGRATIONS_DATABASE_URL` set as above (`get main`):
+
+```bash
+uv run python -m migrations.seed_bank --market US <sub> [<sub> ...]
+```
 
 ### Count the secret versions (when adding a secret)
 

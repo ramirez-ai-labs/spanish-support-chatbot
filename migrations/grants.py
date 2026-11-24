@@ -3,8 +3,9 @@
 Also the pgvector version and the indexes on `chunks`, since 0004 adds HNSW only on 0.8.0+.
 
 For each app role (usage_writer, indexer, app_gcp): its attributes, its role memberships
-and its table privileges. An app role should show no attributes, no memberships, and only the
-grants its migration gave it. Runs with the owner connection, like migrate.py:
+and its table privileges, schema-qualified outside `public`. An app role should show no
+attributes, no memberships, and only the grants its migrations gave it. Runs with the owner
+connection, like migrate.py:
 
     MIGRATIONS_DATABASE_URL="$(gcloud secrets versions access latest --secret neon-owner-urls \\
         --project "$GCP_PROJECT_ID" | python3 infra/scripts/neon_secret_json.py get main)" \\
@@ -48,12 +49,14 @@ def main() -> int:
                     (role,),
                 )
             ]
-            grants = [
+            grants = [  # schema-qualified outside public, e.g. bank.cards (0005)
                 f"{row[0]} {row[1]}"
                 for row in conn.execute(
-                    "select table_name, string_agg(privilege_type, ',' order by privilege_type)"
+                    "select case when table_schema = 'public' then table_name"
+                    " else table_schema || '.' || table_name end as name,"
+                    " string_agg(privilege_type, ',' order by privilege_type)"
                     " from information_schema.role_table_grants where grantee = %s"
-                    " group by table_name order by table_name",
+                    " group by name order by name",
                     (role,),
                 )
             ]
