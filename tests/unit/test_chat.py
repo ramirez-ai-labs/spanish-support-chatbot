@@ -16,6 +16,7 @@ from core.chat import (
     KnowledgeUnavailable,
     Source,
     Sources,
+    UnexpectedToolRequest,
     sources_for,
     user_message,
 )
@@ -143,3 +144,19 @@ def test_the_prompt_numbers_each_chunk_with_its_title_and_headings() -> None:
     assert (
         prompt == "Fuentes:\n\n[1] Cuenta — Requisitos\nTrae tu INE.\n\nPregunta del cliente: ¿Y?"
     )
+
+
+def test_a_tool_request_when_no_tools_were_offered_ends_the_answer_as_an_error() -> None:
+    # No tools are offered yet: a model that asks for one anyway is refused, never run.
+    from core.tools import ToolCall, ToolRequest
+
+    class AskingLLM:
+        model = "asking"
+
+        async def stream(self, *args: object, **kwargs: object) -> AsyncIterator[object]:
+            yield ToolRequest((ToolCall("check_card_status", {"last4": "4417"}),), object())
+
+    sink = MemoryUsageSink()
+    with pytest.raises(UnexpectedToolRequest):
+        run(ChatService(AskingLLM(), usage=sink), QUESTION, None)  # type: ignore[arg-type]
+    assert [record.outcome for record in sink.records] == ["error"]

@@ -38,10 +38,16 @@ from core.redaction import Found, Redacted, Redactor, summary, unredacted
 from core.retrieval import RetrievedChunk, Retriever
 from core.safety import ContentBlocked
 from core.sessions import Session, SessionConflict, SessionRefused, Sessions, Turn
+from core.tools import ToolRequest
 from core.usage import LLMUsage, Outcome, TokenUsage
 
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
+
+
+class UnexpectedToolRequest(Exception):
+    """The model asked for a tool though none was offered. Fails the answer like any model error."""
+
 
 # Kept identical across calls so the prefix can be cached once prompt caching is wired in.
 SYSTEM_PROMPT = (
@@ -308,6 +314,8 @@ class ChatService:
                 async for delta in self._llm.stream(
                     SYSTEM_PROMPT, prompt, usage=tokens, history=history
                 ):
+                    if isinstance(delta, ToolRequest):  # no tools offered yet: a provider fault
+                        raise UnexpectedToolRequest()
                     if chunks == 0:
                         ttft_ms = round((time.perf_counter() - start) * 1000)
                         span.set_attribute("llm.time_to_first_token_ms", ttft_ms)

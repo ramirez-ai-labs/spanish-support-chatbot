@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from core.identity import Caller, VerifiedToken
 from core.pii import PIISpan
-from core.tools import ToolResult, ToolSpec
+from core.tools import ToolRequest, ToolResult, ToolSpec, ToolStep
 from core.usage import LLMUsage, TokenUsage
 
 if TYPE_CHECKING:  # core.indexing, core.retrieval and core.sessions import this module
@@ -26,6 +26,12 @@ class LLMProvider(Protocol):
     `history` is the conversation so far, oldest first. The adapter sends each turn as the
     provider's own user and model messages, never pasted into `user_message`: text the customer
     typed can then never pose as an earlier answer or as the sources.
+
+    `tools` are the declarations the model may call; with none, it only answers in text. If it asks
+    for tools, the stream yields one `ToolRequest` last, possibly after some text. The adapter never
+    runs a tool itself (no automatic function calling): the core checks and runs it, then calls
+    again with `steps`, this message's tool steps so far, oldest first, sent after `user_message`
+    as the model's own turns and function responses (ADR 0008).
     """
 
     model: str  # model name, for traces and usage records
@@ -36,7 +42,9 @@ class LLMProvider(Protocol):
         user_message: str,
         usage: TokenUsage | None = None,
         history: Sequence["Turn"] = (),
-    ) -> AsyncIterator[str]: ...
+        tools: Sequence[ToolSpec] = (),
+        steps: Sequence[ToolStep] = (),
+    ) -> AsyncIterator[str | ToolRequest]: ...
 
 
 class Embedder(Protocol):

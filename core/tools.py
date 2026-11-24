@@ -33,6 +33,44 @@ class ToolResult:
     content: Mapping[str, Any]  # masked data only
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool the model asked for. Its arguments come from the model: untrusted input."""
+
+    name: str
+    arguments: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolRequest:
+    """The model's turn asked for tools: the last thing an `LLMProvider` stream yields, if any.
+
+    `turn` is the provider's own record of the model's turn (for Gemini, its parts with their
+    thought signatures). The core never reads it: it passes it back unchanged in a `ToolStep`, so
+    the provider gets its turn back exactly as it sent it (ADR 0008).
+    """
+
+    calls: tuple[ToolCall, ...]
+    turn: object
+
+
+@dataclass(frozen=True)
+class ToolStep:
+    """One step of the tool loop: what the model asked for, and what came back.
+
+    `results` has one entry per call, in the same order: a tool's masked result, or
+    `{"error": reason}` for a call that didn't run. They go back to the model as function
+    responses, never into the system prompt.
+    """
+
+    request: ToolRequest
+    results: tuple[Mapping[str, Any], ...]
+
+    def __post_init__(self) -> None:
+        if len(self.results) != len(self.request.calls):
+            raise ValueError("A tool step needs exactly one result per call")
+
+
 class ToolError(Exception):
     """A tool call that did not run. `reason` is a short code, safe to log and to show the model."""
 

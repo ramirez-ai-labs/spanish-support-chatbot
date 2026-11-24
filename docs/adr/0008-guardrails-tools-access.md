@@ -5,6 +5,7 @@
 - **Amended:** 2026-11-05: action tools are offered to every signed-in caller, so step-up can be reached; expired sessions are refused on read and swept on create, and only a session's exact owner may use it; the placeholder HMAC's key comes from a master key in the secret store
 - **Amended:** 2026-11-09: history goes to the model as separate turns; someone else's session starts a new one instead of being an error; a store that can't be reached costs the history, not the chat
 - **Amended:** 2026-11-10: a session is about one market, and a message for another starts a new one; a short follow-up is retrieved together with the previous question
+- **Amended:** 2026-11-24: the port yields one `ToolRequest` (calls plus the opaque turn) last, rather than bare `ToolCall`s, and takes the message's tool steps back
 - **Milestone:** M3 (#51)
 
 ## Context
@@ -145,8 +146,10 @@ text on the dev machine (Windows). #51 measures again in the Linux image.
 - **The core owns the loop.** The SDK's automatic function calling is off, so `check_allowed` runs
   before any tool does. Gemini returns opaque thought signatures with its function calls. The adapter
   returns the model's turn as an opaque object, and the core passes it back unchanged.
-- **Port change:** `LLMProvider.stream` takes tools and history, and yields text deltas or
-  `ToolCall(name, arguments)`. The mock LLM scripts tool calls, so tests and CI never call Gemini.
+- **Port change:** `LLMProvider.stream` takes tools, history and this message's tool steps, and
+  yields text deltas, then at most one `ToolRequest` last: its `ToolCall(name, arguments)`s and the
+  opaque turn. A `ToolStep` pairs a request with one result per call, which the adapter sends back
+  by call ID. The mock LLM scripts tool calls per step, so tests and CI never call Gemini.
 - **The three tools** are `check_card_status` (read-only), `block_card` and `open_ticket` (actions).
   - They work on synthetic data in a Neon `bank` schema, filled by a seed script. Ownership is
     checked against `sub`, and results are masked («tarjeta terminada en 4417»).
