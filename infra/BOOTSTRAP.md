@@ -317,13 +317,16 @@ Actions secret `GCP_INDEXER_SA` (bootstrap output `indexer_service_account`).
 
 The card tools read `bank.cards`, which holds synthetic cards only, stored by their last 4 digits.
 [`seed_bank.py`](../migrations/seed_bank.py) gives each test user a debit and a credit card.
-Rerunning it adds nothing. A test user's sub is their user ID in Identity Platform's user list,
-which exists once they have signed in by email link. Pass subs as arguments; never commit them.
-With `MIGRATIONS_DATABASE_URL` set as above (`get main`):
+Rerunning it adds nothing. The user must have signed in on the chat page by email link once.
+The script finds their user ID (the token's `sub`) by email and seeds `main`, without printing the
+ID or the owner connection string:
 
 ```bash
-uv run python -m migrations.seed_bank --market US <sub> [<sub> ...]
+bash infra/scripts/seed-test-user.sh <email> [market]
 ```
+
+To seed by user ID instead (several at once, or on `dev`), with `MIGRATIONS_DATABASE_URL` set as
+above: `uv run python -m migrations.seed_bank --market US <sub> [<sub> ...]`. Never commit subs.
 
 ### Count the secret versions (when adding a secret)
 
