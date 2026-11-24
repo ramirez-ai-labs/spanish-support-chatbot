@@ -2,7 +2,7 @@ import pytest
 
 from adapters.shared.in_process_tools import InProcessToolProvider, Tool
 from core.identity import Tier, tier_allows
-from core.tools import ToolSpec
+from core.tools import ToolCall, ToolRequest, ToolSpec, ToolStep
 
 
 def test_tool_kind_sets_its_tier() -> None:
@@ -31,3 +31,11 @@ def test_duplicate_tool_names_are_refused() -> None:
     spec = ToolSpec("status", "Estado")
     with pytest.raises(ValueError, match="Duplicate tool name"):
         InProcessToolProvider([Tool(spec, handler), Tool(spec, handler)])
+
+
+def test_a_tool_step_needs_one_result_per_call() -> None:
+    request = ToolRequest((ToolCall("status", {}), ToolCall("status", {"last4": "4417"})), object())
+
+    ToolStep(request, ({"status": "active"}, {"error": "not_found"}))
+    with pytest.raises(ValueError, match="one result per call"):
+        ToolStep(request, ({"status": "active"},))

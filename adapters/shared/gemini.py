@@ -7,6 +7,7 @@ from google.genai import types
 
 from core.safety import ContentBlocked
 from core.sessions import Turn
+from core.tools import ToolCall, ToolRequest, ToolSpec, ToolStep
 from core.usage import TokenUsage
 
 # Strictest threshold on every category: block anything rated LOW or above. Gemini has no separate
@@ -51,7 +52,9 @@ class GeminiLLM:
         user_message: str,
         usage: TokenUsage | None = None,
         history: Sequence[Turn] = (),
-    ) -> AsyncIterator[str]:
+        tools: Sequence[ToolSpec] = (),
+        steps: Sequence[ToolStep] = (),
+    ) -> AsyncIterator[str | ToolRequest]:
         # Each earlier turn as Gemini's own user and model messages, then this question.
         contents = [
             content
@@ -62,16 +65,36 @@ class GeminiLLM:
             )
         ]
         contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
+        # This turn's tool rounds: the model's own turn back as it was (its thought signatures
+        # included), then the results as function responses, never as text.
+        for step in steps:
+            if not isinstance(step.request.turn, types.Content):
+                raise TypeError("a ToolStep's turn must come from this adapter")
+            contents.append(step.request.turn)
+            contents.append(
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_function_response(name=call.name, response=dict(result))
+                        for call, result in zip(step.request.calls, step.results, strict=True)
+                    ],
+                )
+            )
         config = types.GenerateContentConfig(
             system_instruction=system,
             # Thinking as low as the model allows on the hot path: it adds latency and tokens to
             # time to first token. Gemini 3 ignores thinking_budget=0, so use the level.
             thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
             safety_settings=SAFETY_SETTINGS,
+            tools=_declarations(tools),
+            # The core runs tools itself, after its access checks; the SDK never runs one.
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
         chunks = await self._client.aio.models.generate_content_stream(
             model=self.model, contents=contents, config=config
         )
+        turn: list[types.Part] = []  # every part the model sent, to hand back with a ToolRequest
+        calls: list[ToolCall] = []
         async for chunk in chunks:
             # Counts arrive on the stream's chunks; the last one has the totals for the call.
             # prompt_token_count includes cached tokens; candidates excludes thinking.
@@ -84,12 +107,38 @@ class GeminiLLM:
             feedback = chunk.prompt_feedback
             if feedback is not None and feedback.block_reason is not None:
                 raise ContentBlocked("input", (feedback.block_reason.name,))
-            if chunk.text:
-                yield chunk.text
             for candidate in chunk.candidates or []:
+                parts = candidate.content.parts if candidate.content is not None else None
+                for part in parts or []:
+                    turn.append(part)
+                    if part.function_call is not None and part.function_call.name:
+                        call = part.function_call
+                        calls.append(ToolCall(call.name or "", dict(call.args or {})))
+                    elif part.text and not part.thought:  # what chunk.text returns, by parts
+                        yield part.text
                 reason = candidate.finish_reason
                 if reason is not None and reason.name in BLOCKED_FINISH_REASONS:
                     raise ContentBlocked("output", _flagged_categories(candidate) or (reason.name,))
+        if calls:
+            yield ToolRequest(tuple(calls), types.Content(role="model", parts=turn))
+
+
+def _declarations(tools: Sequence[ToolSpec]) -> types.ToolListUnion | None:
+    """The offered tools as Gemini function declarations; descriptions are fixed strings in code."""
+    if not tools:
+        return None
+    return [
+        types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name=spec.name,
+                    description=spec.description,
+                    parameters_json_schema=dict(spec.parameters) or None,
+                )
+                for spec in tools
+            ]
+        )
+    ]
 
 
 def _flagged_categories(candidate: types.Candidate) -> tuple[str, ...]:

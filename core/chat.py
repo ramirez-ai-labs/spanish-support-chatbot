@@ -308,6 +308,8 @@ class ChatService:
                 async for delta in self._llm.stream(
                     SYSTEM_PROMPT, prompt, usage=tokens, history=history
                 ):
+                    if not isinstance(delta, str):  # no tools are offered yet (the agent, M3)
+                        raise RuntimeError("the model asked for a tool, but none were offered")
                     if chunks == 0:
                         ttft_ms = round((time.perf_counter() - start) * 1000)
                         span.set_attribute("llm.time_to_first_token_ms", ttft_ms)

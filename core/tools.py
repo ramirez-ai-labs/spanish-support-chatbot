@@ -33,6 +33,43 @@ class ToolResult:
     content: Mapping[str, Any]  # masked data only
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool the model asked to run. The arguments are the model's: untrusted until checked."""
+
+    name: str
+    arguments: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolRequest:
+    """The model's turn when it asks for tools: the last thing its stream yields, if anything.
+
+    `turn` is the adapter's own record of that turn (Gemini's carries thought signatures it needs
+    back). The core never reads it: it passes it back unchanged in a `ToolStep`, and an adapter
+    refuses a turn that isn't its own.
+    """
+
+    calls: tuple[ToolCall, ...]
+    turn: object
+
+
+@dataclass(frozen=True)
+class ToolStep:
+    """One round of the agent loop: the model's request, then one result per call, in order.
+
+    A result is the tool's masked content, or `{"error": <reason code>}` for a call that didn't run.
+    Results go back to the model as function responses, never into the system prompt.
+    """
+
+    request: ToolRequest
+    results: tuple[Mapping[str, Any], ...]
+
+    def __post_init__(self) -> None:
+        if len(self.results) != len(self.request.calls):
+            raise ValueError("a ToolStep needs exactly one result per call")
+
+
 class ToolError(Exception):
     """A tool call that did not run. `reason` is a short code, safe to log and to show the model."""
 
