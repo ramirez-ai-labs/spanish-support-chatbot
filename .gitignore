@@ -238,3 +238,6 @@ terraform.rc
 
 # Model files fetched for local tests (python -m adapters.shared.e5 fetch .models/e5)
 .models/
+
+# macOS Finder metadata
+.DS_Store

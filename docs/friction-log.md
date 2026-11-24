@@ -8,6 +8,31 @@ one confirmed dead.
 
 ## M3 · Guardrails, agent, access
 
+**Hugging Face's CDN served empty files, and two deploys stopped at the image build** ([#156])
+- **What:** after [#153] and [#155] merged, `tf-apply` applied both stacks, then failed at the image
+  build: `digest mismatch sha256:e3b0c442…`, the hash of an empty file. The deploy was skipped, so
+  the live service stayed on the previous image.
+- **Why:** Hugging Face now redirects the pinned e5 files to its Xet CDN, which often answers 502
+  with an empty body. `ADD --checksum` takes that body as the file, so only the pin stopped it.
+  By hand, the model file failed 3 of 5 tries, and one fetch needed 7.
+- **Fix:** the adapter's `fetch()` retries each file (10 tries, waits capped at 20 s) and writes only
+  a file whose checksum matches. The Dockerfile downloads through it, so the pins live in one place,
+  and CI and the index workflow get the same retries.
+- **Rule:** a pinned download retries; it never drops its pin. A hash of `e3b0c442…` means the
+  download was empty, not that the file changed.
+
+**Every Dependabot PR failed `tf-plan`** ([#151]–[#155])
+- **What:** all five PRs failed at the Google login within seconds:
+  `must specify exactly one of "workload_identity_provider" or "credentials_json"`.
+- **Why:** runs that Dependabot triggers get Dependabot secrets, not Actions secrets, and there were
+  none. Earlier Dependabot PRs had passed only because the owner's own push (Update branch)
+  re-triggered them. `tf-apply-gate` also passed without exercising anything: with no secrets, the
+  login failed before GCP could refuse it.
+- **Fix:** the same five values set as Dependabot secrets (BOOTSTRAP.md). The first try set them
+  empty: `terraform output` run outside the stack's folder prints nothing and exits 0.
+- **Rule:** a check that passes because it never ran is a failure; look for the refusal in the log.
+  Pipe `terraform output` only from the stack's folder.
+
 **The free-tier warning couldn't fire** ([#123])
 - **What:** the deploy's registry check read an empty size from `gcloud`, so it wrote
   `size not reported` and never warned. After [#122] deployed, the registry held 940 MB against
@@ -249,3 +274,7 @@ one confirmed dead.
 [#113]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/113
 [#122]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/122
 [#123]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/123
+[#151]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/151
+[#153]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/153
+[#155]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/155
+[#156]: https://github.com/ramirez-ai-labs/spanish-support-chatbot/pull/156

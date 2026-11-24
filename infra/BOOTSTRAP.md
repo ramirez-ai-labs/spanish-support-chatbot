@@ -412,6 +412,20 @@ terraform output -raw apply_service_account      | gh secret set GCP_APPLY_SA
 printf '%s' "$GCP_PROJECT_ID"                 | gh secret set GCP_PROJECT_ID
 ```
 
+Runs that Dependabot triggers get **no Actions secrets**, only Dependabot secrets, so without these
+its PRs fail `tf-plan` at the Google login. Set the same values for Dependabot too. `GCP_APPLY_SA`
+is there only so `tf-apply-gate` proves a PR is refused; GCP still never lets a PR act as it. Run
+both blocks from `infra/terraform/bootstrap`: anywhere else, `terraform output` prints nothing
+without an error, and the secrets are set empty.
+
+```bash
+terraform output -raw state_bucket               | gh secret set TF_STATE_BUCKET --app dependabot
+terraform output -raw workload_identity_provider | gh secret set GCP_WIF_PROVIDER --app dependabot
+terraform output -raw plan_service_account       | gh secret set GCP_PLAN_SA --app dependabot
+terraform output -raw apply_service_account      | gh secret set GCP_APPLY_SA --app dependabot
+printf '%s' "$GCP_PROJECT_ID"                 | gh secret set GCP_PROJECT_ID --app dependabot
+```
+
 ### Check the permissions
 
 After any change to this stack, run the read-only permission check (Policy Troubleshooter). It
