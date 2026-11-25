@@ -53,6 +53,7 @@ class RecordingLLM:
         user_message: str,
         usage: TokenUsage | None = None,
         history: Sequence[Turn] = (),
+        **_: object,
     ) -> AsyncIterator[str]:
         self.calls.append((user_message, tuple(history)))
         yield self.reply
@@ -65,6 +66,7 @@ class BlockingLLM(RecordingLLM):
         user_message: str,
         usage: TokenUsage | None = None,
         history: Sequence[Turn] = (),
+        **_: object,
     ) -> AsyncIterator[str]:
         yield "Empiezo"
         raise ContentBlocked("output", ("TEST",))

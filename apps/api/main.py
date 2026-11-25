@@ -32,6 +32,7 @@ from core.ports import (
     LLMProvider,
     PIIDetector,
     SignInLinkSender,
+    ToolProvider,
     UsageSink,
 )
 from core.redaction import Redactor
@@ -291,6 +292,24 @@ def build_retriever(embedder: Embedder | None, markets: Mapping[str, Market]) ->
     raise ValueError(f"Unknown KNOWLEDGE_STORE: {store!r} (expected 'neon', 'memory' or 'none')")
 
 
+def build_tools() -> ToolProvider | None:
+    """The customer tools, from CARD_STORE; none by default (tests, local runs), so no tools.
+
+    `neon` reads the synthetic bank's cards as the read-only app_gcp role (migration 0005).
+    """
+    store = os.environ.get("CARD_STORE", "none")
+    if store == "none":
+        return None
+    if store == "neon":
+        from adapters.shared.in_process_tools import InProcessToolProvider, Tool
+        from adapters.shared.neon_cards import NeonCardStore
+        from core.cards import CHECK_CARD_STATUS, check_card_status
+
+        cards = NeonCardStore(neon_url("app_gcp"))
+        return InProcessToolProvider([Tool(CHECK_CARD_STATUS, check_card_status(cards))])
+    raise ValueError(f"Unknown CARD_STORE: {store!r} (expected 'neon' or 'none')")
+
+
 def build_tracing() -> Callable[[], None] | None:
     """Pick the span exporter from TRACE_EXPORTER; tracing stays a no-op when it is unset."""
     exporter = os.environ.get("TRACE_EXPORTER", "none")
@@ -326,6 +345,7 @@ def create_app(
     markets: Mapping[str, Market] | None = None,
     pii_detector: PIIDetector | None = None,
     sessions: Sessions | None = None,
+    tools: ToolProvider | None = None,
 ) -> FastAPI:
     if markets is None:
         markets = load_markets(KNOWLEDGE / "markets.yaml")
@@ -341,6 +361,7 @@ def create_app(
         retriever = build_retriever(build_embedder(), markets)
         pii_detector = build_pii_detector()
         sessions = build_sessions()
+        tools = build_tools()
     cloud = os.environ.get("CLOUD", "local")
     if pii_detector is None and cloud != "local":
         # Redaction is a guarantee, not a setting: a missing variable must not switch it off.
@@ -352,6 +373,7 @@ def create_app(
         retriever=retriever,
         redactor=Redactor(pii_detector) if pii_detector is not None else None,
         sessions=sessions,
+        tools=tools,
     )
 
     def identify(authorization: str | None) -> Caller:
@@ -525,7 +547,9 @@ def create_app(
                 data = json.dumps({"session_id": turn.session.id})
                 yield f"event: session\ndata: {data}\n\n"
             try:
-                async for event in chat.reply(turn.redacted, request.market, turn.session):
+                async for event in chat.reply(
+                    turn.redacted, request.market, turn.session, caller=caller
+                ):
                     if isinstance(event, Sources):
                         # Before the first delta, so the page can show them as the answer streams.
                         sources = [vars(source) for source in event.sources]

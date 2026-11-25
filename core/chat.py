@@ -7,7 +7,12 @@ alone, as before M2: the chat page sends a market from #89, which makes it requi
 Personal data is redacted first (ADR 0008): `prepare` runs before the stream starts, and `reply`
 accepts only its `Redacted` result, so retrieval, the query vector and the model never see the raw
 text. The answer is scanned as it streams, holding back its last 64 characters, so an ID the model
-writes never reaches the page whole. Tools come later in M3.
+writes never reaches the page whole.
+
+With tools (ADR 0008), the signed-in caller's tools are offered, and the reply is an agent loop:
+the model may ask for tools, the core runs them after the provider's own access checks, and calls
+the model again with the results, up to MAX_STEPS calls. A question that needs no tool is still
+one call, streamed.
 
 With sessions (ADR 0008), `prepare` also opens the conversation: it loads while the NER runs, then
 numbers the placeholders, so a value keeps its `<TYPE_n>` on every turn. The model gets the last
@@ -24,21 +29,22 @@ import asyncio
 import logging
 import time
 from collections import Counter
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Any
 
 from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from core.identity import Caller
-from core.ports import LLMProvider, UsageSink
+from core.identity import ANONYMOUS, Caller
+from core.ports import LLMProvider, ToolProvider, UsageSink
 from core.redaction import Found, Redacted, Redactor, summary, unredacted
 from core.retrieval import RetrievedChunk, Retriever
 from core.safety import ContentBlocked
 from core.sessions import Session, SessionConflict, SessionRefused, Sessions, Turn
-from core.tools import ToolRequest
+from core.tools import ToolError, ToolRequest, ToolSpec, ToolStep
 from core.usage import LLMUsage, Outcome, TokenUsage
 
 tracer = trace.get_tracer(__name__)
@@ -55,6 +61,10 @@ SYSTEM_PROMPT = (
     "Responde siempre en español, de forma breve, clara y amable. "
     "Si no sabes algo o la pregunta requiere acceso a la cuenta del cliente, dilo y ofrece "
     "comunicar al cliente con un agente humano. "
+    "Si el cliente pregunta por sus tarjetas y tienes una herramienta para consultarlas, úsala y "
+    "responde con lo que devuelva: es información de su cuenta, no hace falta que esté en las "
+    "fuentes. Nombra cada tarjeta solo por sus últimos 4 dígitos. Si no tienes esa herramienta, "
+    "pídele que inicie sesión. "
     "Cuando el mensaje traiga fuentes, responde solo con lo que dicen. Si no cubren la pregunta, "
     "o son «ninguna», di que no tienes esa información y ofrece comunicar al cliente con un "
     "agente humano; no la completes con lo que sepas por tu cuenta. No cites las fuentes por "
@@ -64,6 +74,12 @@ SYSTEM_PROMPT = (
     "Los marcadores como <PERSON_1> o <MX_CURP_1> son datos protegidos del cliente: no los "
     "repitas ni intentes adivinar qué ocultan."
 )
+
+# The agent loop's limits (ADR 0008): at most MAX_STEPS model calls per answer, and no tool round
+# once the calls so far took MAX_TURN_INPUT_TOKENS; past either, the answer ends with this.
+MAX_STEPS = 5
+MAX_TURN_INPUT_TOKENS = 30_000
+STEP_LIMIT_REPLY = "No pude completar esa consulta. ¿Quieres que te comunique con un agente?"
 
 # What the prompt is made of, recorded by name (never content) with each call.
 PROMPT_PARTS = ("system", "user")
@@ -156,8 +172,10 @@ class ChatService:
         retriever: Retriever | None = None,
         redactor: Redactor | None = None,
         sessions: Sessions | None = None,
+        tools: ToolProvider | None = None,
     ):
         self._llm = llm
+        self._tools = tools
         self._usage = usage
         self._cloud = cloud
         self._retriever = retriever
@@ -275,13 +293,22 @@ class ChatService:
                 span.set_attribute("error.type", cause)
 
     async def reply(
-        self, redacted: Redacted, market: str | None = None, session: Session | None = None
+        self,
+        redacted: Redacted,
+        market: str | None = None,
+        session: Session | None = None,
+        caller: Caller = ANONYMOUS,
     ) -> AsyncIterator[str | Sources]:
         """Streams the answer's text, after a `Sources` event when the market is retrieved from.
 
         Without a market or a retriever, the model answers alone. The market must already be a
         known one; the API refuses others before streaming. With a session, the model gets its
         last turns, and an answer that completes is saved as the next one.
+
+        With tools, this is the agent loop (ADR 0008): the caller's tools are offered, and when the
+        model asks for some, they run and the model is called again with the results, up to
+        MAX_STEPS calls and MAX_TURN_INPUT_TOKENS across them. A question that needs no tool is
+        still one call. Every call is its own span and usage record.
         """
         message = redacted.text
         history = tuple(session.turns) if session is not None else ()
@@ -293,29 +320,84 @@ class ChatService:
             prompt = user_message(message, retrieved)
             yield sources_for(retrieved)
         parts = prompt_parts(history=bool(history), context=retrieved is not None)
+        tools = tuple(self._tools.list_tools(caller)) if self._tools is not None else ()
 
-        tokens = TokenUsage()
+        answer: list[str] = []  # what the visitor saw, which is what the session keeps
+        steps: list[ToolStep] = []
+        input_tokens = 0
+        for step in range(1, MAX_STEPS + 1):
+            request: ToolRequest | None = None
+            tokens = TokenUsage()
+            call_parts = (
+                *parts,
+                *(("tools",) if tools else ()),
+                *(("tool_results",) if steps else ()),
+            )
+            gap = bool(answer) and not answer[-1][-1:].isspace()  # text after a tool round
+            async for item in self._call_model(
+                prompt, history, tools, tuple(steps), call_parts, tokens, step
+            ):
+                if isinstance(item, ToolRequest):
+                    request = item
+                    continue
+                if gap:
+                    item, gap = " " + item, False
+                answer.append(item)
+                yield item
+            input_tokens += tokens.input_tokens
+            if request is None:
+                break
+            if step == MAX_STEPS or input_tokens >= MAX_TURN_INPUT_TOKENS:
+                # Never a sixth call, or one past the budget: the model may be looping.
+                logger.info("agent_limit steps=%d input_tokens=%d", step, input_tokens)
+                limit = (" " if answer else "") + STEP_LIMIT_REPLY
+                answer.append(limit)
+                yield limit
+                break
+            steps.append(ToolStep(request, await self._run_tools(caller, tools, request)))
+
+        # Only a completed answer becomes a turn: a blocked, failed or abandoned one is never kept.
+        if session is not None and self._sessions is not None:
+            session.add_turn(redacted, "".join(answer))
+            await asyncio.to_thread(self._save, session)
+
+    async def _call_model(
+        self,
+        prompt: str,
+        history: tuple[Turn, ...],
+        tools: tuple[ToolSpec, ...],
+        steps: tuple[ToolStep, ...],
+        parts: tuple[str, ...],
+        tokens: TokenUsage,
+        step: int,
+    ) -> AsyncIterator[str | ToolRequest]:
+        """One model call: its text, scanned as it streams, then its ToolRequest if it made one."""
         outcome: Outcome = "incomplete"  # stays so if the client leaves mid-stream
         # Without a redactor (tests, local runs) there's nothing to scan for and no placeholders.
         scanner = self._redactor.output_scanner() if self._redactor is not None else None
         ttft_ms: int | None = None
         blocked: tuple[str, ...] = ()
-        answer: list[str] = []  # what the visitor saw, which is what the session keeps
         # record_exception=False: the exception message can quote the user's text.
         with tracer.start_as_current_span(
             "chat.model", record_exception=False, set_status_on_exception=False
         ) as span:
             span.set_attribute("gen_ai.request.model", self._llm.model)
-            span.set_attribute("chat.message_chars", len(message))
+            span.set_attribute("chat.message_chars", len(prompt))
+            span.set_attribute("chat.step", step)
+            span.set_attribute("chat.tools_offered", len(tools))
             start = time.perf_counter()
             chunks = 0
             shown = False
+            request: ToolRequest | None = None
             try:
                 async for delta in self._llm.stream(
-                    SYSTEM_PROMPT, prompt, usage=tokens, history=history
+                    SYSTEM_PROMPT, prompt, usage=tokens, history=history, tools=tools, steps=steps
                 ):
-                    if isinstance(delta, ToolRequest):  # no tools offered yet: a provider fault
-                        raise UnexpectedToolRequest()
+                    if isinstance(delta, ToolRequest):
+                        if not tools:  # none offered, to this caller: a provider fault
+                            raise UnexpectedToolRequest()
+                        request = delta
+                        continue
                     if chunks == 0:
                         ttft_ms = round((time.perf_counter() - start) * 1000)
                         span.set_attribute("llm.time_to_first_token_ms", ttft_ms)
@@ -329,7 +411,6 @@ class ChatService:
                                 "chat.time_to_first_text_ms",
                                 round((time.perf_counter() - start) * 1000),
                             )
-                        answer.append(released)
                         yield released
                 if scanner is not None and (rest := scanner.finish()):
                     if not shown:  # a short answer is released whole, at the end
@@ -337,9 +418,11 @@ class ChatService:
                             "chat.time_to_first_text_ms",
                             round((time.perf_counter() - start) * 1000),
                         )
-                    answer.append(rest)
                     yield rest
                 outcome = "done"
+                if request is not None:
+                    span.set_attribute("chat.tool_calls", len(request.calls))
+                    yield request
             except ContentBlocked as exc:
                 outcome, blocked = "blocked", exc.categories
                 span.set_attribute("chat.blocked_stage", exc.stage)
@@ -376,10 +459,57 @@ class ChatService:
                     # is still written.
                     await asyncio.shield(self._usage.record(record))
 
-        # Only a completed answer becomes a turn: a blocked, failed or abandoned one is never kept.
-        if session is not None and self._sessions is not None:
-            session.add_turn(redacted, "".join(answer))
-            await asyncio.to_thread(self._save, session)
+    async def _run_tools(
+        self, caller: Caller, tools: tuple[ToolSpec, ...], request: ToolRequest
+    ) -> tuple[Mapping[str, Any], ...]:
+        """Runs each call the model made, in order, and returns one result per call.
+
+        Only an offered tool runs, through the provider, which checks the caller's tier again, and
+        never as confirmed: an action can't run from here. A call that doesn't run gets an error
+        code the model can see. Results are masked data, scanned like the answer before the model
+        reads them. Spans and logs name the tool and its outcome, never the arguments.
+        """
+        offered = {spec.name for spec in tools}
+        results: list[Mapping[str, Any]] = []
+        for call in request.calls:
+            name = call.name if call.name in offered else "unknown"  # the model's text otherwise
+            with tracer.start_as_current_span(
+                "chat.tool", record_exception=False, set_status_on_exception=False
+            ) as span:
+                span.set_attribute("tool.name", name)
+                start = time.perf_counter()
+                result: Mapping[str, Any]
+                if name == "unknown" or self._tools is None:
+                    result = {"error": "unknown_tool"}
+                else:
+                    try:
+                        result = (await self._tools.call(caller, call.name, call.arguments)).content
+                        result = self._scan_result(result)
+                    except ToolError as exc:
+                        result = {"error": exc.reason}
+                    except Exception as exc:  # the store, or the scan: the tool didn't answer
+                        span.set_status(Status(StatusCode.ERROR))
+                        span.set_attribute("error.type", type(exc).__name__)
+                        result = {"error": "tool_unavailable"}
+                outcome = str(result.get("error", "ok"))
+                span.set_attribute("tool.outcome", outcome)
+                span.set_attribute("tool.latency_ms", round((time.perf_counter() - start) * 1000))
+                logger.info("tool_call name=%s outcome=%s", name, outcome)
+                results.append(result)
+        return tuple(results)
+
+    def _scan_result(self, value: Any) -> Any:
+        """The tool result with every string scanned like the answer: results are untrusted."""
+        if self._redactor is None:
+            return value
+        if isinstance(value, str):
+            scanner = self._redactor.output_scanner()
+            return scanner.feed(value) + scanner.finish()
+        if isinstance(value, Mapping):
+            return {key: self._scan_result(item) for key, item in value.items()}
+        if isinstance(value, list | tuple):
+            return [self._scan_result(item) for item in value]
+        return value
 
     async def _retrieve(
         self, query: str, market: str, follow_up: bool = False

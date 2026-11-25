@@ -344,6 +344,12 @@ resource "google_cloud_run_v2_service" "api" {
         value = "neon"
       }
       env {
+        # check_card_status for signed-in callers: the synthetic bank's cards, read as app_gcp
+        # (migration 0005, ADR 0008)
+        name  = "CARD_STORE"
+        value = "neon"
+      }
+      env {
         # Drops only clear noise: off-topic questions score up to 0.874 and some correct matches
         # 0.851, so the prompt's rule says "I don't know", not this (#86, build log)
         name  = "RETRIEVAL_MIN_SCORE"
