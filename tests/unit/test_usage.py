@@ -70,6 +70,7 @@ def test_a_provider_error_is_recorded_and_still_raised() -> None:
             user_message: str,
             usage: TokenUsage | None = None,
             history: object = (),
+            **_: object,
         ) -> AsyncIterator[str]:
             raise RuntimeError("provider detail")
             yield ""

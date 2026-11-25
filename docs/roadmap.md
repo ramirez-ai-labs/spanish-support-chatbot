@@ -184,15 +184,15 @@ Done when: the bot redacts PII, takes one confirmed action only for a step-up-ve
 - [x] Content safety: Gemini's filters at the strictest threshold for hate, sexual, harassment and dangerous content; a block becomes a polite refusal and is recorded by category, never with the text. Violent requests are refused by the model, not the filter: an input classifier is decided with the M4 safety set (#65)
 - [x] Presidio with a Spanish model and ID patterns per market (US SSN, Mexico CURP, Colombia cédula, El Salvador DUI, Peru DNI), added as markets are added; the model is baked into the image at build time (#51). Live: `es_core_news_md`, US SSN and ITIN, Mexico's CURP and CLABE, El Salvador's DUI and Spain's NIF and NIE, each of ours checked by its check digit; Colombia and Peru come with their markets
 - [x] PII handling: redact right after the token check; no request-body logging and no message text on spans before redaction; consistent placeholders for names (`<PERSON_1>`); scan model output too. Live and failing closed on both sides: the message before anything reads it, and the answer as it streams (pattern recognizers, a 64-character hold-back, «[dato protegido]»). Placeholders are numbered per conversation, by HMAC under a key derived from the secret store's master key
-- [ ] Tools return masked data only (e.g., card ending 4417), never full numbers
+- [x] Tools return masked data only (e.g., card ending 4417), never full numbers: `bank.cards` stores only the last 4 digits (migration 0005), so no full number exists
 - [x] Log redaction events by type, never the value: a `chat.redaction` span and one `pii_redacted` log line, with types and counts only
-- [ ] Agent controller: step cap of 5, per-conversation token cap, tool allowlist, confirmation before actions
-- [ ] Fast path: no-tool questions get one model call and stream; the tool loop runs only when needed; no separate router model call
+- [ ] Agent controller: step cap of 5, per-conversation token cap, tool allowlist, confirmation before actions. Live: the step cap, the allowlist (only offered tools run, and the loop never confirms an action), and a token cap per answer (30,000 input tokens across its calls); per-user budgets are M5's
+- [x] Fast path: no-tool questions get one model call and stream; the tool loop runs only when needed; no separate router model call
 - [x] Parallel pre-work after the token check: redaction and session load together (the load runs in a thread beside the NER), then the query embedding, from the redacted text ([ADR 0008](adr/0008-guardrails-tools-access.md): its vector goes to Neon)
-- [ ] Lean prompts: 3 to 5 chunks, trimmed history, compact system prompt kept identical at the start for prompt caching; Gemini thinking off on the hot path
-- [ ] Mock tools: `check_card_status`, `block_card`, `open_ticket`
-- [ ] Tiered access: anonymous = policy answers; signed in = read-only tools; step-up = action tools
-- [ ] Tools check scope and ownership against the user's `sub`; the LLM never sees tokens
+- [x] Lean prompts: 3 to 5 chunks, trimmed history, compact system prompt kept identical at the start for prompt caching; Gemini thinking off on the hot path. Live: the top 4 chunks, the last 6 turns, a fixed system prompt, and thinking at Gemini 3's minimum level (it ignores a zero budget)
+- [ ] Mock tools: `check_card_status`, `block_card`, `open_ticket`. Live: `check_card_status`, on synthetic cards in Neon's `bank` schema
+- [ ] Tiered access: anonymous = policy answers; signed in = read-only tools; step-up = action tools. Live: anonymous callers get no tools, signed-in callers the read-only one
+- [x] Tools check scope and ownership against the user's `sub`; the LLM never sees tokens. `check_card_status` reads only the verified caller's cards, so another customer's card is simply not found
 - [ ] Step-up via email one-time code or re-login, enforced by `auth_time` within 5 minutes
 - [ ] Staff role for the handoff queue via Firebase custom claims
 - [ ] Audit log of every action: who, what, when, decision

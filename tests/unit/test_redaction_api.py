@@ -53,7 +53,12 @@ class ScriptedLLM:
         self.chunks = chunks
 
     async def stream(
-        self, system: str, user_message: str, usage: object = None, history: object = ()
+        self,
+        system: str,
+        user_message: str,
+        usage: object = None,
+        history: object = (),
+        **_: object,
     ) -> AsyncIterator[str]:
         for chunk in self.chunks:
             yield chunk
@@ -66,7 +71,12 @@ class RecordingLLM:
         self.prompts: list[str] = []
 
     async def stream(
-        self, system: str, user_message: str, usage: object = None, history: object = ()
+        self,
+        system: str,
+        user_message: str,
+        usage: object = None,
+        history: object = (),
+        **_: object,
     ) -> AsyncIterator[str]:
         self.prompts.append(user_message)
         yield "ok"

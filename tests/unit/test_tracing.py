@@ -83,7 +83,12 @@ def test_provider_error_marks_both_spans_by_type_only() -> None:
         model = "fake"
 
         async def stream(
-            self, system: str, user_message: str, usage: object = None, history: object = ()
+            self,
+            system: str,
+            user_message: str,
+            usage: object = None,
+            history: object = (),
+            **_: object,
         ) -> AsyncIterator[str]:
             raise RuntimeError(secret)
             yield ""

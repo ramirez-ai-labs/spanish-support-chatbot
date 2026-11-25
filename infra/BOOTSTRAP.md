@@ -311,7 +311,7 @@ Actions secret `GCP_INDEXER_SA` (bootstrap output `indexer_service_account`).
 - [x] M1: migrations 0001–0002 applied; `usage_writer` password set (2026-11-01)
 - [x] M2: migration 0004 applied (2026-11-02)
 - [x] M2: `app_gcp` and `indexer` passwords set; `GCP_INDEXER_SA` added (#84, 2026-11-02)
-- [ ] M3: migration 0005 (`bank` schema) applied on `main` and `dev`; test users seeded
+- [x] M3: migration 0005 (`bank` schema) applied on `main` and `dev`; a test user seeded (2026-11-23)
 
 ### Seed test users' synthetic cards (M3, after 0005)
 

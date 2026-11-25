@@ -85,8 +85,8 @@ The per-cloud mapping of every layer is in the [roadmap](roadmap.md#architecture
 ### 3.1 Live system today
 
 Only what is deployed and running, as of `v0.2.0` plus M3's first slices: redaction of the
-message and of the answer, and conversation sessions in Firestore, are live; tools are not
-built yet.
+message and of the answer, conversation sessions in Firestore, and the agent loop with the
+read-only `check_card_status` tool for signed-in callers are live; action tools are not built yet.
 
 ```mermaid
 flowchart LR
@@ -306,12 +306,15 @@ down by stage.
 | 4 | Session | Loaded from Firestore while the NER runs, then it numbers the placeholders, so a value keeps its `<TYPE_n>` on every turn. Only its owner's `sub` may use it, and only for its market: anyone else, including the same visitor after signing in or out, starts a new conversation, and so does a change of market. The model gets the last 6 turns as its own user and model messages, never pasted into the question. A completed answer is saved as the next turn, version-checked; a blocked, failed or abandoned one isn't. If the store can't be reached the answer goes on without history ([ADR 0008](adr/0008-guardrails-tools-access.md)) | M3 (live) |
 | 5 | Retrieval | multilingual-e5-small, in the container, embeds the question (`query:` prefix), or for a short follow-up the previous question with it; Neon returns the top 4 chunks, **always filtered by market**, with HNSW iterative scans so the filter can't leave too few ([ADR 0007](adr/0007-rag-design.md)) | M2 (live) |
 | 6 | Model | One streamed Gemini call; stable system prompt prefix for caching; thinking at minimal | M0 (live) |
-| 7 | Tools | Only if the model asks: the tier, scope and ownership checks run before any tool | M3 |
+| 7 | Tools | Only if the model asks, and only tools offered to this caller's tier: anonymous callers get none. The core runs them (the SDK's automatic function calling is off), through the `ToolProvider`, which checks the tier again and never confirms an action. `check_card_status` reads `bank.cards` by the verified `sub` only, as the read-only `app_gcp` role, and returns the last 4 digits, kind, status and expiry. Results go back as function responses, scanned like the answer; a call that doesn't run gets an error code (`unknown_tool`, `card_not_found`, `tool_unavailable`). One `chat.tool` span per call, with its name and outcome, never its arguments ([ADR 0008](adr/0008-guardrails-tools-access.md)) | M3 (live, read-only) |
 | 8 | Output check | The model's output is scanned for PII as well | M3 |
 | 9 | Usage | Tokens, model, `purpose`, `prompt_parts` and latency written async to `llm_usage` | M1 |
 
-A question that needs no tool costs **one model call**, with no router model in front of it.
-Agent loops that do need tools are capped at 5 steps.
+A question that needs no tool costs **one model call**, with no router model in front of it,
+even with tools offered. A tool question costs two: one that asks, one that answers. The loop stops
+at 5 model calls, or once the calls so far took 30,000 input tokens, and ends with an offer of an
+agent; each call is its own `chat.model` span and `llm_usage` row, its `prompt_parts` naming
+`tools` and `tool_results`.
 
 ## 5. Identity and access
 
@@ -344,7 +347,7 @@ port.
   never the token.
 - **The token stops at the API.** The chat service and the model see only the message.
 - **The tier rule lives in `core/identity.py`**, so it's the same on every cloud: step-up means
-  signed in within the last 5 minutes. Tools that use the tiers arrive in M3.
+  signed in within the last 5 minutes. The agent loop offers tools by it (M3).
 - **The JWT checker is generic** (`adapters/shared/jwt_identity.py`). Firebase supplies only its
   key URL, issuer and audience; Entra and Cognito will do the same in M7 and M8.
 - **A bot check sits in front of the model.** Each chat message carries a fresh, single-use

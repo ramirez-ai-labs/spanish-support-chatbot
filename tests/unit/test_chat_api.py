@@ -68,7 +68,12 @@ def test_provider_error_becomes_generic_error_event() -> None:
         model = "fake"
 
         async def stream(
-            self, system: str, user_message: str, usage: object = None, history: object = ()
+            self,
+            system: str,
+            user_message: str,
+            usage: object = None,
+            history: object = (),
+            **_: object,
         ) -> AsyncIterator[str]:
             raise RuntimeError(secret)
             yield ""
@@ -93,7 +98,12 @@ def test_provider_error_logs_type_and_code_only(caplog: pytest.LogCaptureFixture
         model = "fake"
 
         async def stream(
-            self, system: str, user_message: str, usage: object = None, history: object = ()
+            self,
+            system: str,
+            user_message: str,
+            usage: object = None,
+            history: object = (),
+            **_: object,
         ) -> AsyncIterator[str]:
             raise ProviderError(secret)
             yield ""
@@ -114,7 +124,12 @@ def test_system_prompt_is_passed_to_provider() -> None:
         model = "fake"
 
         async def stream(
-            self, system: str, user_message: str, usage: object = None, history: object = ()
+            self,
+            system: str,
+            user_message: str,
+            usage: object = None,
+            history: object = (),
+            **_: object,
         ) -> AsyncIterator[str]:
             seen.append(system)
             yield "ok"

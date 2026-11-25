@@ -55,7 +55,12 @@ class RecordingLLM:
         self.seen: list[str] = []
 
     async def stream(
-        self, system: str, user_message: str, usage: object = None, history: object = ()
+        self,
+        system: str,
+        user_message: str,
+        usage: object = None,
+        history: object = (),
+        **_: object,
     ) -> AsyncIterator[str]:
         self.seen += [system, user_message]
         yield "ok"
@@ -166,3 +171,40 @@ def test_embedder_choice(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EMBEDDER", "nope")
     with pytest.raises(ValueError, match="Unknown EMBEDDER"):
         build_embedder()
+
+
+# --- tools follow the verified caller (ADR 0008) --------------------------------------------------
+
+
+def test_the_card_tool_answers_a_signed_in_caller_from_their_own_cards() -> None:
+    from datetime import date
+
+    from adapters.shared.in_process_tools import InProcessToolProvider, Tool
+    from adapters.shared.memory_cards import MemoryCardStore
+    from core.cards import CHECK_CARD_STATUS, Card, check_card_status
+    from core.tools import ToolCall
+
+    # The token's sub ("user-123") owns 4417; another customer owns 9999.
+    store = MemoryCardStore(
+        [
+            ("user-123", Card("4417", "debit", "active", date(2029, 12, 31), "US")),
+            ("user-456", Card("9999", "debit", "active", date(2029, 12, 31), "US")),
+        ]
+    )
+    tools = InProcessToolProvider([Tool(CHECK_CARD_STATUS, check_card_status(store))])
+    script = {"tarjeta": ToolCall(CHECK_CARD_STATUS.name, {})}
+
+    def ask(headers: dict[str, str]) -> str:
+        llm = MockLLM(tool_script=script)
+        app = create_app(llm=llm, identity=provider(), tools=tools)
+        response = TestClient(app).post(
+            "/v1/chat", json={"message": "¿Y mi tarjeta?", "market": "US"}, headers=headers
+        )
+        assert response.status_code == 200
+        return response.text
+
+    signed_in = ask({"Authorization": f"Bearer {token()}"})
+    anonymous = ask({})
+
+    assert "4417" in signed_in and "9999" not in signed_in
+    assert "4417" not in anonymous  # no token: no tools, so no card is ever read

@@ -9,6 +9,7 @@ from core.tools import ToolRequest, ToolResult, ToolSpec, ToolStep
 from core.usage import LLMUsage, TokenUsage
 
 if TYPE_CHECKING:  # core.indexing, core.retrieval and core.sessions import this module
+    from core.cards import Card
     from core.indexing import StoredChunk
     from core.retrieval import RetrievedChunk
     from core.sessions import Session, Turn
@@ -156,6 +157,18 @@ class ToolProvider(Protocol):
         self, caller: Caller, name: str, arguments: Mapping[str, Any], confirmed: bool = False
     ) -> ToolResult:
         """Runs a tool. Raises `UnknownTool`, or `ToolDenied` with a reason code."""
+        ...
+
+
+class CardStore(Protocol):
+    """The synthetic bank's cards (migration 0005), read as the app's read-only role.
+
+    Every read is by owner: the caller's verified `sub` is the only way in, so a customer can never
+    reach another's card, and the tools never take an owner from the model.
+    """
+
+    def cards_of(self, sub: str) -> list["Card"]:
+        """The owner's cards, by kind then last 4 digits; empty for an owner with none. Blocking."""
         ...
 
 
