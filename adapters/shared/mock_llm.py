@@ -1,7 +1,7 @@
 """Deterministic LLM for tests and CI, so they never call Gemini or need a key."""
 
 import json
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 
 from core.safety import ContentBlocked
@@ -19,28 +19,27 @@ MOCK_REPLY = (
 
 
 @dataclass(frozen=True)
-class _MockTurn:
-    """The mock's own record of a turn that asked for tools, like Gemini's opaque Content."""
+class MockTurn:
+    """The mock's opaque turn, so tests can check the core passed it back unchanged."""
 
-    calls: tuple[ToolCall, ...]
+    step: int
 
 
 class MockLLM:
-    """Streams a fixed reply, or asks for tools when scripted to.
+    """Answers with a fixed reply, or asks for scripted tools first.
 
-    `tool_script` maps a trigger to a call: when the message contains the trigger, the call's tool
-    is offered, and this turn has no tool rounds yet, the stream asks for it instead of answering.
-    With rounds, it answers with the reply followed by the results it was given, so tests can see
-    them arrive.
+    `tool_steps[i]` are the calls the mock asks for at step i (when given i earlier steps), as long
+    as tools are offered; after the script it answers in text. Scripting a tool that isn't offered
+    is a test bug, so it raises instead of pretending.
     """
 
     model = "mock"
 
     def __init__(
-        self, reply: str = MOCK_REPLY, tool_script: Mapping[str, ToolCall] | None = None
+        self, reply: str = MOCK_REPLY, tool_steps: Sequence[Sequence[ToolCall]] = ()
     ) -> None:
         self._reply = reply
-        self._script = dict(tool_script or {})
+        self._tool_steps = [tuple(calls) for calls in tool_steps]
         # What the latest call was given, for tests.
         self.last_history: tuple[Turn, ...] = ()
         self.last_tools: tuple[ToolSpec, ...] = ()
@@ -55,30 +54,32 @@ class MockLLM:
         tools: Sequence[ToolSpec] = (),
         steps: Sequence[ToolStep] = (),
     ) -> AsyncIterator[str | ToolRequest]:
-        self.last_history = tuple(history)
-        self.last_tools = tuple(tools)
-        self.last_steps = tuple(steps)
+        self.last_history, self.last_tools, self.last_steps = (
+            tuple(history),
+            tuple(tools),
+            tuple(steps),
+        )
         if MOCK_BLOCK in user_message:
             raise ContentBlocked("output", ("TEST",))
-        for step in steps:
-            if not isinstance(step.request.turn, _MockTurn):
-                raise TypeError("a ToolStep's turn must come from this adapter")
+        for i, step in enumerate(steps):
+            if step.request.turn != MockTurn(i):
+                raise ValueError("A tool step's turn must come back exactly as the model sent it")
+        calls = self._tool_steps[len(steps)] if tools and len(steps) < len(self._tool_steps) else ()
         offered = {spec.name for spec in tools}
-        calls = tuple(
-            call
-            for trigger, call in self._script.items()
-            if trigger in user_message and call.name in offered
-        )
-        results = [json.dumps(dict(r), ensure_ascii=False) for s in steps for r in s.results]
-        reply = " ".join([self._reply, *results]) if steps else self._reply
-        words = reply.split(" ")
+        if any(call.name not in offered for call in calls):
+            raise ValueError("The mock was scripted to call a tool that wasn't offered")
+        words = [] if calls else self._reply.split(" ")
         if usage is not None:  # deterministic stand-in counts: one token per word
             earlier = sum(len(t.question.split()) + len(t.answer.split()) for t in history)
-            sent = sum(len(r.split()) for r in results)
-            usage.input_tokens = len(system.split()) + earlier + len(user_message.split()) + sent
-            usage.output_tokens = 1 if calls and not steps else len(words)
-        if calls and not steps:
-            yield ToolRequest(calls, _MockTurn(calls))
-            return
+            declared = sum(
+                len(json.dumps([s.name, s.description, s.parameters]).split()) for s in tools
+            )
+            results = sum(len(json.dumps(r).split()) for step in steps for r in step.results)
+            usage.input_tokens = (
+                len(system.split()) + earlier + len(user_message.split()) + declared + results
+            )
+            usage.output_tokens = len(words) + len(calls)
         for word in words:
             yield word + " "
+        if calls:
+            yield ToolRequest(calls=calls, turn=MockTurn(len(steps)))

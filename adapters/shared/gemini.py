@@ -55,46 +55,22 @@ class GeminiLLM:
         tools: Sequence[ToolSpec] = (),
         steps: Sequence[ToolStep] = (),
     ) -> AsyncIterator[str | ToolRequest]:
-        # Each earlier turn as Gemini's own user and model messages, then this question.
-        contents = [
-            content
-            for turn in history
-            for content in (
-                types.Content(role="user", parts=[types.Part(text=turn.question)]),
-                types.Content(role="model", parts=[types.Part(text=turn.answer)]),
-            )
-        ]
-        contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
-        # This turn's tool rounds: the model's own turn back as it was (its thought signatures
-        # included), then the results as function responses, never as text.
-        for step in steps:
-            if not isinstance(step.request.turn, types.Content):
-                raise TypeError("a ToolStep's turn must come from this adapter")
-            contents.append(step.request.turn)
-            contents.append(
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_function_response(name=call.name, response=dict(result))
-                        for call, result in zip(step.request.calls, step.results, strict=True)
-                    ],
-                )
-            )
         config = types.GenerateContentConfig(
             system_instruction=system,
             # Thinking as low as the model allows on the hot path: it adds latency and tokens to
             # time to first token. Gemini 3 ignores thinking_budget=0, so use the level.
             thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
             safety_settings=SAFETY_SETTINGS,
-            tools=_declarations(tools),
-            # The core runs tools itself, after its access checks; the SDK never runs one.
+            tools=declarations(tools),
+            # The core runs tools, after its own checks (ADR 0008); the SDK must never run one.
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
         chunks = await self._client.aio.models.generate_content_stream(
-            model=self.model, contents=contents, config=config
+            model=self.model, contents=contents(user_message, history, steps), config=config
         )
-        turn: list[types.Part] = []  # every part the model sent, to hand back with a ToolRequest
-        calls: list[ToolCall] = []
+        # The model's whole turn, part by part as streamed: its function calls carry thought
+        # signatures, which Gemini needs back unchanged on the next call.
+        parts: list[types.Part] = []
         async for chunk in chunks:
             # Counts arrive on the stream's chunks; the last one has the totals for the call.
             # prompt_token_count includes cached tokens; candidates excludes thinking.
@@ -107,24 +83,27 @@ class GeminiLLM:
             feedback = chunk.prompt_feedback
             if feedback is not None and feedback.block_reason is not None:
                 raise ContentBlocked("input", (feedback.block_reason.name,))
-            for candidate in chunk.candidates or []:
-                parts = candidate.content.parts if candidate.content is not None else None
-                for part in parts or []:
-                    turn.append(part)
-                    if part.function_call is not None and part.function_call.name:
-                        call = part.function_call
-                        calls.append(ToolCall(call.name or "", dict(call.args or {})))
-                    elif part.text and not part.thought:  # what chunk.text returns, by parts
+            for candidate in (chunk.candidates or [])[:1]:  # one candidate is requested
+                for part in (candidate.content.parts if candidate.content else None) or []:
+                    parts.append(part)
+                    if part.text and not part.thought:
                         yield part.text
                 reason = candidate.finish_reason
                 if reason is not None and reason.name in BLOCKED_FINISH_REASONS:
                     raise ContentBlocked("output", _flagged_categories(candidate) or (reason.name,))
+        calls = tuple(
+            ToolCall(
+                name=part.function_call.name or "", arguments=dict(part.function_call.args or {})
+            )
+            for part in parts
+            if part.function_call is not None
+        )
         if calls:
-            yield ToolRequest(tuple(calls), types.Content(role="model", parts=turn))
+            yield ToolRequest(calls=calls, turn=types.Content(role="model", parts=parts))
 
 
-def _declarations(tools: Sequence[ToolSpec]) -> types.ToolListUnion | None:
-    """The offered tools as Gemini function declarations; descriptions are fixed strings in code."""
+def declarations(tools: Sequence[ToolSpec]) -> types.ToolListUnion | None:
+    """The tools as Gemini function declarations; None offers none, as before tools existed."""
     if not tools:
         return None
     return [
@@ -133,12 +112,49 @@ def _declarations(tools: Sequence[ToolSpec]) -> types.ToolListUnion | None:
                 types.FunctionDeclaration(
                     name=spec.name,
                     description=spec.description,
+                    # A tool without arguments declares none: Gemini rejects an empty schema.
                     parameters_json_schema=dict(spec.parameters) or None,
                 )
                 for spec in tools
             ]
         )
     ]
+
+
+def contents(
+    user_message: str, history: Sequence[Turn], steps: Sequence[ToolStep]
+) -> list[types.Content]:
+    """Earlier turns as Gemini's own messages, this question, then this message's tool steps."""
+    sent = [
+        content
+        for turn in history
+        for content in (
+            types.Content(role="user", parts=[types.Part(text=turn.question)]),
+            types.Content(role="model", parts=[types.Part(text=turn.answer)]),
+        )
+    ]
+    sent.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
+    for step in steps:
+        turn = step.request.turn
+        if not isinstance(turn, types.Content):
+            raise TypeError("A tool step's turn must be the one this adapter returned")
+        called = [part.function_call for part in turn.parts or [] if part.function_call]
+        sent.append(turn)  # unchanged, thought signatures included
+        sent.append(
+            types.Content(
+                role="user",
+                parts=[
+                    # Each result answers its call by ID, so parallel calls can't be mixed up.
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id=call.id, name=call.name, response=dict(result)
+                        )
+                    )
+                    for call, result in zip(called, step.results, strict=True)
+                ],
+            )
+        )
+    return sent
 
 
 def _flagged_categories(candidate: types.Candidate) -> tuple[str, ...]:

@@ -35,7 +35,7 @@ class ToolResult:
 
 @dataclass(frozen=True)
 class ToolCall:
-    """One tool the model asked to run. The arguments are the model's: untrusted until checked."""
+    """One tool the model asked for. Its arguments come from the model: untrusted input."""
 
     name: str
     arguments: Mapping[str, Any]
@@ -43,11 +43,11 @@ class ToolCall:
 
 @dataclass(frozen=True)
 class ToolRequest:
-    """The model's turn when it asks for tools: the last thing its stream yields, if anything.
+    """The model's turn asked for tools: the last thing an `LLMProvider` stream yields, if any.
 
-    `turn` is the adapter's own record of that turn (Gemini's carries thought signatures it needs
-    back). The core never reads it: it passes it back unchanged in a `ToolStep`, and an adapter
-    refuses a turn that isn't its own.
+    `turn` is the provider's own record of the model's turn (for Gemini, its parts with their
+    thought signatures). The core never reads it: it passes it back unchanged in a `ToolStep`, so
+    the provider gets its turn back exactly as it sent it (ADR 0008).
     """
 
     calls: tuple[ToolCall, ...]
@@ -56,10 +56,11 @@ class ToolRequest:
 
 @dataclass(frozen=True)
 class ToolStep:
-    """One round of the agent loop: the model's request, then one result per call, in order.
+    """One step of the tool loop: what the model asked for, and what came back.
 
-    A result is the tool's masked content, or `{"error": <reason code>}` for a call that didn't run.
-    Results go back to the model as function responses, never into the system prompt.
+    `results` has one entry per call, in the same order: a tool's masked result, or
+    `{"error": reason}` for a call that didn't run. They go back to the model as function
+    responses, never into the system prompt.
     """
 
     request: ToolRequest
@@ -67,7 +68,7 @@ class ToolStep:
 
     def __post_init__(self) -> None:
         if len(self.results) != len(self.request.calls):
-            raise ValueError("a ToolStep needs exactly one result per call")
+            raise ValueError("A tool step needs exactly one result per call")
 
 
 class ToolError(Exception):

@@ -28,11 +28,11 @@ class LLMProvider(Protocol):
     provider's own user and model messages, never pasted into `user_message`: text the customer
     typed can then never pose as an earlier answer or as the sources.
 
-    Tools (ADR 0008): `tools` are the ones the model may ask for; with none, it can't ask. The
-    stream yields text, and may end with one `ToolRequest` instead of finishing the answer. The
-    provider's own automatic function calling stays off: the core runs tools, after
-    `check_allowed`. To go on, the core calls again with the same arguments plus `steps`, the rounds
-    so far in this turn, each a request it was given back unchanged with one result per call.
+    `tools` are the declarations the model may call; with none, it only answers in text. If it asks
+    for tools, the stream yields one `ToolRequest` last, possibly after some text. The adapter never
+    runs a tool itself (no automatic function calling): the core checks and runs it, then calls
+    again with `steps`, this message's tool steps so far, oldest first, sent after `user_message`
+    as the model's own turns and function responses (ADR 0008).
     """
 
     model: str  # model name, for traces and usage records

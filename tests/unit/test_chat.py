@@ -16,6 +16,7 @@ from core.chat import (
     KnowledgeUnavailable,
     Source,
     Sources,
+    UnexpectedToolRequest,
     sources_for,
     user_message,
 )
@@ -161,6 +162,6 @@ def test_a_tool_request_when_no_tools_were_offered_ends_the_answer_as_an_error()
             yield ToolRequest((ToolCall("check_card_status", {"last4": "4417"}),), object())
 
     sink = MemoryUsageSink()
-    with pytest.raises(RuntimeError, match="none were offered"):
+    with pytest.raises(UnexpectedToolRequest):
         run(ChatService(AskingLLM(), usage=sink), QUESTION, None)  # type: ignore[arg-type]
     assert [record.outcome for record in sink.records] == ["error"]

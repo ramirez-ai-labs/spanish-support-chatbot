@@ -192,19 +192,19 @@ def test_the_card_tool_answers_a_signed_in_caller_from_their_own_cards() -> None
         ]
     )
     tools = InProcessToolProvider([Tool(CHECK_CARD_STATUS, check_card_status(store))])
-    script = {"tarjeta": ToolCall(CHECK_CARD_STATUS.name, {})}
 
-    def ask(headers: dict[str, str]) -> str:
-        llm = MockLLM(tool_script=script)
+    def ask(headers: dict[str, str]) -> MockLLM:
+        llm = MockLLM(tool_steps=[[ToolCall(CHECK_CARD_STATUS.name, {})]])
         app = create_app(llm=llm, identity=provider(), tools=tools)
         response = TestClient(app).post(
             "/v1/chat", json={"message": "¿Y mi tarjeta?", "market": "US"}, headers=headers
         )
-        assert response.status_code == 200
-        return response.text
+        assert response.status_code == 200 and "event: done" in response.text
+        return llm
 
     signed_in = ask({"Authorization": f"Bearer {token()}"})
     anonymous = ask({})
 
-    assert "4417" in signed_in and "9999" not in signed_in
-    assert "4417" not in anonymous  # no token: no tools, so no card is ever read
+    (step,) = signed_in.last_steps  # the model got the tool's result: the caller's cards only
+    assert [card["ending"] for card in step.results[0]["cards"]] == ["4417"]
+    assert anonymous.last_tools == () and anonymous.last_steps == ()  # no token: no card is read

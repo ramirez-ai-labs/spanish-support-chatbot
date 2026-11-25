@@ -50,6 +50,11 @@ from core.usage import LLMUsage, Outcome, TokenUsage
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
 
+
+class UnexpectedToolRequest(Exception):
+    """The model asked for a tool though none was offered. Fails the answer like any model error."""
+
+
 # Kept identical across calls so the prefix can be cached once prompt caching is wired in.
 SYSTEM_PROMPT = (
     "Eres el asistente de soporte de un banco ficticio para clientes hispanohablantes. "
@@ -389,8 +394,8 @@ class ChatService:
                     SYSTEM_PROMPT, prompt, usage=tokens, history=history, tools=tools, steps=steps
                 ):
                     if isinstance(delta, ToolRequest):
-                        if not tools:
-                            raise RuntimeError("the model asked for a tool, but none were offered")
+                        if not tools:  # none offered, to this caller: a provider fault
+                            raise UnexpectedToolRequest()
                         request = delta
                         continue
                     if chunks == 0:

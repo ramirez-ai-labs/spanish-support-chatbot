@@ -22,21 +22,6 @@ from core.tools import ToolCall, ToolRequest, ToolSpec, ToolStep
 from core.usage import TokenUsage
 
 QUESTION = "¿Cómo bloqueo mi tarjeta?"
-CARD_QUESTION = "¿Está activa mi tarjeta terminada en 4417?"  # synthetic last 4 digits
-CARD_TOOL = ToolSpec(
-    name="check_card_status",
-    description="Returns whether one of the customer's cards is active or blocked.",
-    parameters={
-        "type": "object",
-        "properties": {"last4": {"type": "string", "description": "The card's last 4 digits."}},
-        "required": ["last4"],
-    },
-)
-
-
-def mock() -> LLMProvider:
-    # Scripted the way Gemini behaves: a question about the card ending 4417 asks for the tool.
-    return MockLLM(tool_script={"4417": ToolCall(CARD_TOOL.name, {"last4": "4417"})})
 
 
 def gemini() -> LLMProvider:
@@ -47,7 +32,7 @@ def gemini() -> LLMProvider:
 
 
 ADAPTERS: list[Any] = [
-    pytest.param(mock, id="mock"),
+    pytest.param(MockLLM, id="mock"),
     pytest.param(gemini, id="gemini", marks=pytest.mark.integration),
 ]
 
@@ -58,20 +43,20 @@ def llm(request: pytest.FixtureRequest) -> LLMProvider:
     return build()
 
 
-async def collect[T](stream: AsyncIterator[T]) -> list[T]:
-    return [chunk async for chunk in stream]
+async def collect(stream: AsyncIterator[str | ToolRequest]) -> list[str]:
+    """The streamed text. A tool request here fails the test: none was expected."""
+    chunks = [chunk async for chunk in stream]
+    assert all(isinstance(chunk, str) for chunk in chunks), "asked for a tool unprompted"
+    return [chunk for chunk in chunks if isinstance(chunk, str)]
 
 
-def texts(items: list[str | ToolRequest]) -> str:
-    assert all(isinstance(item, str) for item in items), "asked for a tool"
-    return "".join(str(item) for item in items)
-
-
-def tool_request(items: list[str | ToolRequest]) -> ToolRequest:
-    """The request that ends the stream: text may come before it, nothing after."""
-    assert items and isinstance(items[-1], ToolRequest), "did not ask for a tool"
-    assert all(isinstance(item, str) for item in items[:-1])
-    return items[-1]
+async def until_tools(stream: AsyncIterator[str | ToolRequest]) -> tuple[list[str], ToolRequest]:
+    """The text before the tool request, and the request, which must come last."""
+    chunks = [chunk async for chunk in stream]
+    assert chunks and isinstance(chunks[-1], ToolRequest), "no tool request at the end"
+    text = chunks[:-1]
+    assert all(isinstance(chunk, str) for chunk in text), "a tool request before the end"
+    return [chunk for chunk in text if isinstance(chunk, str)], chunks[-1]
 
 
 def run[T](coroutine: Coroutine[Any, Any, T]) -> T:
@@ -105,7 +90,7 @@ def test_each_call_is_independent(llm: LLMProvider) -> None:
 
 def test_stopping_early_closes_cleanly(llm: LLMProvider) -> None:
     # A client that disconnects mid-answer stops the stream after the first chunk.
-    async def first_chunk_then_stop() -> str:
+    async def first_chunk_then_stop() -> str | ToolRequest:
         stream = llm.stream(SYSTEM_PROMPT, QUESTION)
         first = await anext(stream)
         aclose = getattr(stream, "aclose", None)
@@ -120,13 +105,10 @@ def test_takes_earlier_turns_as_history(llm: LLMProvider) -> None:
     history = [Turn("¿Cómo abro una cuenta?", "Desde la app, en «Abrir cuenta».")]
     alone, with_history = TokenUsage(), TokenUsage()
 
-    async def both() -> list[str | ToolRequest]:  # one loop: Gemini's client binds to its first
-        await collect(llm.stream(SYSTEM_PROMPT, QUESTION, usage=alone))
-        return await collect(
-            llm.stream(SYSTEM_PROMPT, QUESTION, usage=with_history, history=history)
-        )
+    run(collect(llm.stream(SYSTEM_PROMPT, QUESTION, usage=alone)))
+    chunks = run(collect(llm.stream(SYSTEM_PROMPT, QUESTION, usage=with_history, history=history)))
 
-    assert texts(run(both())).strip()
+    assert "".join(chunks).strip()
     assert with_history.input_tokens > alone.input_tokens  # the earlier turn was sent
 
 
@@ -177,62 +159,87 @@ def test_a_blocked_request_raises_content_blocked(
     assert blocked.value.categories
 
 
-def test_with_tools_offered_a_question_that_needs_none_still_streams(llm: LLMProvider) -> None:
-    # The fast path: offering tools doesn't cost a no-tool question a tool round.
-    items = run(collect(llm.stream(SYSTEM_PROMPT, QUESTION, tools=[CARD_TOOL])))
+# A synthetic card and its masked status, the shape the M3 tools return.
+CARD_STATUS = ToolSpec(
+    name="check_card_status",
+    description="Consulta el estado de una tarjeta del cliente que inició sesión.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "last4": {"type": "string", "description": "Últimos 4 dígitos de la tarjeta"}
+        },
+        "required": ["last4"],
+    },
+)
+STATUS_QUESTION = "¿Cuál es el estado de mi tarjeta terminada en 4417?"
+STATUS_RESULT = {"tarjeta": "terminada en 4417", "estado": "bloqueada"}
 
-    assert texts(items).strip()
+# Each adapter's own way to get a tool call: a script for the mock, and for Gemini a question only
+# the offered tool can answer.
+CALLING: list[Any] = [
+    pytest.param(
+        lambda: MockLLM(tool_steps=[[ToolCall("check_card_status", {"last4": "4417"})]]), id="mock"
+    ),
+    pytest.param(gemini, id="gemini", marks=pytest.mark.integration),
+]
 
 
-def test_asks_for_an_offered_tool_when_the_question_needs_it(llm: LLMProvider) -> None:
-    stream = llm.stream(SYSTEM_PROMPT, CARD_QUESTION, tools=[CARD_TOOL])
-    request = tool_request(run(collect(stream)))
-
-    assert [call.name for call in request.calls] == [CARD_TOOL.name]
-    assert request.calls[0].arguments.get("last4") == "4417"
+@pytest.fixture(params=CALLING)
+def calling_llm(request: pytest.FixtureRequest) -> LLMProvider:
+    build: Callable[[], LLMProvider] = request.param
+    return build()
 
 
-def test_never_asks_for_a_tool_it_was_not_offered(llm: LLMProvider) -> None:
-    items = run(collect(llm.stream(SYSTEM_PROMPT, CARD_QUESTION)))
+def test_asks_for_an_offered_tool_without_running_it(calling_llm: LLMProvider) -> None:
+    _, request = run(
+        until_tools(calling_llm.stream(SYSTEM_PROMPT, STATUS_QUESTION, tools=[CARD_STATUS]))
+    )
 
-    assert texts(items).strip()
+    assert request.calls
+    assert all(call.name == CARD_STATUS.name for call in request.calls)
+    assert all(dict(call.arguments).get("last4") == "4417" for call in request.calls)
 
 
-def test_answers_from_the_tool_results_it_is_given(llm: LLMProvider) -> None:
-    first, second = TokenUsage(), TokenUsage()
-
-    async def two_rounds() -> list[str | ToolRequest]:
-        stream = llm.stream(SYSTEM_PROMPT, CARD_QUESTION, usage=first, tools=[CARD_TOOL])
-        request = tool_request(await collect(stream))
-        step = ToolStep(request, ({"last4": "4417", "status": "blocked"},))
-        return await collect(
-            llm.stream(SYSTEM_PROMPT, CARD_QUESTION, usage=second, tools=[CARD_TOOL], steps=[step])
+def test_answers_from_the_tool_results_it_gets_back(calling_llm: LLMProvider) -> None:
+    # One event loop for both calls: the second sends back the turn the first returned.
+    async def call_then_answer() -> tuple[list[str], TokenUsage, TokenUsage]:
+        asked, answered = TokenUsage(), TokenUsage()
+        _, request = await until_tools(
+            calling_llm.stream(SYSTEM_PROMPT, STATUS_QUESTION, usage=asked, tools=[CARD_STATUS])
         )
+        step = ToolStep(request, tuple(STATUS_RESULT for _ in request.calls))
+        chunks = await collect(
+            calling_llm.stream(
+                SYSTEM_PROMPT, STATUS_QUESTION, usage=answered, tools=[CARD_STATUS], steps=[step]
+            )
+        )
+        return chunks, asked, answered
 
-    assert texts(run(two_rounds())).strip()
-    assert second.input_tokens > first.input_tokens  # the request and its result were sent
+    chunks, asked, answered = run(call_then_answer())
+
+    assert "".join(chunks).strip()
+    assert asked.output_tokens > 0  # a tool request is model output too
+    assert answered.input_tokens > asked.input_tokens  # its turn and the results were sent
 
 
-def test_refuses_a_turn_that_is_not_its_own(llm: LLMProvider) -> None:
-    # Turns are opaque to the core, but an adapter must never replay one it didn't make.
-    foreign = ToolRequest((ToolCall(CARD_TOOL.name, {"last4": "4417"}),), turn=object())
-    step = ToolStep(foreign, ({"status": "active"},))
+def test_offered_tools_alone_dont_force_a_call(llm: LLMProvider) -> None:
+    chunks = run(collect(llm.stream(SYSTEM_PROMPT, "Hola, buenos días.", tools=[CARD_STATUS])))
 
-    with pytest.raises(TypeError):
-        run(collect(llm.stream(SYSTEM_PROMPT, CARD_QUESTION, tools=[CARD_TOOL], steps=[step])))
+    assert "".join(chunks).strip()
 
 
 @pytest.mark.integration
 def test_gemini_answers_with_what_the_tool_returned() -> None:
     llm = gemini()
 
-    async def two_rounds() -> str:
-        stream = llm.stream(SYSTEM_PROMPT, CARD_QUESTION, tools=[CARD_TOOL])
-        request = tool_request(await collect(stream))
-        step = ToolStep(request, ({"last4": "4417", "status": "blocked"},))
-        items = await collect(
-            llm.stream(SYSTEM_PROMPT, CARD_QUESTION, tools=[CARD_TOOL], steps=[step])
+    async def call_then_answer() -> str:
+        _, request = await until_tools(
+            llm.stream(SYSTEM_PROMPT, STATUS_QUESTION, tools=[CARD_STATUS])
         )
-        return texts(items)
+        step = ToolStep(request, tuple(STATUS_RESULT for _ in request.calls))
+        chunks = await collect(
+            llm.stream(SYSTEM_PROMPT, STATUS_QUESTION, tools=[CARD_STATUS], steps=[step])
+        )
+        return "".join(chunks)
 
-    assert "bloquead" in run(two_rounds()).lower()
+    assert "bloquead" in run(call_then_answer()).lower()

@@ -1,7 +1,8 @@
 """The agent loop in core.chat (ADR 0008): tools for signed-in callers, run by the core, capped.
 
-The mock LLM asks for check_card_status when a message names the card ending 4417, as Gemini does
-(the LLMProvider contract suite holds both to that). Synthetic cards and subs only.
+The mock LLM is scripted per step to ask for check_card_status whenever tools are offered, as
+Gemini does for a card question (the LLMProvider contract suite holds both to that). Synthetic
+cards and subs only.
 """
 
 import asyncio
@@ -38,7 +39,7 @@ def card_tools(*extra: Tool) -> InProcessToolProvider:
 
 
 def card_llm() -> MockLLM:
-    return MockLLM(tool_script={"4417": ToolCall(CHECK_CARD_STATUS.name, {"last4": "4417"})})
+    return MockLLM(tool_steps=[[ToolCall(CHECK_CARD_STATUS.name, {"last4": "4417"})]])
 
 
 def answer(service: ChatService, message: str, caller: Caller) -> str:
@@ -85,10 +86,10 @@ def test_a_signed_in_card_question_runs_the_tool_and_answers_with_its_result() -
 
     text = answer(service, CARD_QUESTION, ALICE)
 
-    (step,) = llm.last_steps
-    assert step.results == ({"cards": [step.results[0]["cards"][0]]},)
-    assert step.results[0]["cards"][0]["ending"] == "4417"
-    assert '"ending": "4417"' in text  # the mock answers with the results it was given
+    (step,) = llm.last_steps  # the model's second call got the tool's result
+    (result,) = step.results
+    assert [card["ending"] for card in result["cards"]] == ["4417"]
+    assert text.strip()
     assert [r.prompt_parts for r in usage.records] == [
         ("system", "user", "tools"),
         ("system", "user", "tools", "tool_results"),
@@ -107,7 +108,7 @@ def test_an_anonymous_caller_is_offered_no_tools_and_gets_one_call() -> None:
 
 
 def test_a_question_that_needs_no_tool_is_still_one_call() -> None:
-    llm, usage = card_llm(), MemoryUsageSink()
+    llm, usage = MockLLM(), MemoryUsageSink()  # offered the tool, it answers without it
     service = ChatService(llm, usage=usage, tools=card_tools())
 
     answer(service, POLICY_QUESTION, ALICE)
